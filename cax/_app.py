@@ -9,6 +9,10 @@ import glfw
 
 from functools import partial
 from typing import NamedTuple
+import threading
+import queue
+import time
+from IPython import embed
 
 from cax._utils import redraw, rotation_matrix, rotation_matrix_about_vector
 from cax.sdfs import test_sdf
@@ -25,13 +29,18 @@ world_up = np.array([0., 0., 1.])
 zoom = 0.8
 sdf = test_sdf()
 
-def make_texture():
+command_queue = queue.Queue()
+
+def make_texture(texture_id=None):
     global frame_buf, fb_width, fb_height
 
-    frame_buf = np.zeros((fb_height, fb_width, 3), dtype=np.float32)
+    frame_buf = np.zeros((fb_height, fb_width, 4), dtype=np.float32)
     gl.glViewport(0, 0, fb_width, fb_height)
+    gl.glEnable(gl.GL_BLEND)
+    gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
     # Generate a new texture
-    texture_id = gl.glGenTextures(1)
+    if texture_id is None:
+        texture_id = gl.glGenTextures(1)
     gl.glBindTexture(gl.GL_TEXTURE_2D, texture_id)
 
     # Set texture parameters
@@ -45,11 +54,11 @@ def make_texture():
     gl.glTexImage2D(
         gl.GL_TEXTURE_2D,
         0,
-        gl.GL_RGB32F,
+        gl.GL_RGBA32F,
         fb_width,
         fb_height,
         0,
-        gl.GL_RGB,
+        gl.GL_RGBA,
         gl.GL_FLOAT,
         frame_buf,
     )
@@ -76,13 +85,15 @@ def draw_scene(texture_id, fast=False):
         0,
         0, 0,
         fb_width, fb_height,
-        gl.GL_RGB,
+        gl.GL_RGBA,
         gl.GL_FLOAT,
         frame_buf,
     )
 
     # Bind the texture to display it
     gl.glEnable(gl.GL_TEXTURE_2D)
+    gl.glEnable(gl.GL_BLEND)
+    gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
     gl.glColor3f(1.0, 1.0, 1.0)
 
     # Draw a quad to display the texture
@@ -113,14 +124,12 @@ def main():
     glfw.make_context_current(window)
 
     fb_width, fb_height = glfw.get_framebuffer_size(window)
-    print(f"Framebuffer size: {fb_width}x{fb_height}")
 
     texture_id = make_texture()
     draw_scene(texture_id)
     glfw.swap_buffers(window)
 
     # Mouse state
-
     def mouse_button_callback(win, button, action, mods):
         global dragging, last_pos_x, last_pos_y
         if button == glfw.MOUSE_BUTTON_LEFT:
@@ -131,6 +140,14 @@ def main():
                 glfw.swap_buffers(window)
 
     glfw.set_mouse_button_callback(window, mouse_button_callback)
+
+    def window_resize_callback(win, width, height):
+        global fb_width, fb_height
+        fb_width, fb_height = glfw.get_framebuffer_size(window)
+        gl.glViewport(0, 0, fb_width, fb_height)
+        make_texture(texture_id)
+
+    glfw.set_window_size_callback(window, window_resize_callback)
 
     while not glfw.window_should_close(window):
         if dragging:

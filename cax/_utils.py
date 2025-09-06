@@ -66,7 +66,8 @@ def camera_rays_ortho(forward, world_up, looking_at, view_size, fx=0.6):
 def redraw(sdf, width, height, step_n, pos0, world_up, looking_at, fx, color):
     ray_dir = camera_rays_perspective(-pos0, world_up, looking_at, view_size=(width, height), fx=fx)
     hit_pos = jax.vmap(partial(raycast, sdf, pos0, step_n))(ray_dir)
-    return hit_pos.reshape(height, width, 3) % 1.0
+    mask = (jax.vmap(sdf)(hit_pos) < 1.0).astype(jnp.float32)
+    return jnp.concatenate((hit_pos.reshape(height, width, 3) % 1.0, mask.reshape(height, width, 1)), axis=-1)
     # vis_data = jax.vmap(jax.grad(sdf))(hit_pos)
     # # vis_data = norm(jax.vmap(jax.grad(sdf))(hit_pos))[:,jnp.newaxis] * jnp.array([[1., 1., 1.]])
     # return vis_data.reshape(height, width, 3)

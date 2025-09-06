@@ -54,10 +54,4 @@ def test_sdf():
         sphere(0.5),
         box([0.3, 0.3, 0.3], position=[0.5, 0.5, 0.5]),
     )
-    # part2 = translate(
-    #     scale(
-    #         box([0.2, 0.2, 0.7]), 1.2
-    #     ),
-    #     d=[0.3, 0.3, 0.]
-    # )
     return part1
