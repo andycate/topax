@@ -13,9 +13,9 @@ uniform float _fx;
 uniform float _stopEpsilon;
 uniform float _tmax;
 
-{% for i in inputs %}
+{% for i in inputs -%}
 uniform {{ i.type }} {{ i.name }};
-{% endfor %}
+{% endfor -%}
 
 
 {% for f in funcs %}

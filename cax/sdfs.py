@@ -1,12 +1,11 @@
-import jax
-import jax.numpy as jnp
-from jax.typing import ArrayLike
-from typing import Union
-
 import warnings
 import abc
 from dataclasses import dataclass
 import inspect
+
+import jax
+import jax.numpy as jnp
+import jinja2
 
 @dataclass
 class ShaderParam:
@@ -23,53 +22,62 @@ class SDF(abc.ABC):
     _all_sdfs = {}
 
     def __init__(self, *args):
-        for s in args:
+        for i, s in enumerate(args):
             assert type(s).__base__ == SDF, f"unsupported hashable type {type(s)} detected, SDFs currently only support other SDFs as hashable types"
-        self._inner_sdfs = args
-        self._hashable_items = args
-        self._name = type(self).__name__ + f"{SDF._all_sdfs[type(self).__name__]}"
-        SDF._all_sdfs[type(self).__name__] += 1
+            assert s not in args[i+1:], "Currently, passing multiple of the same sdf instance to a modifier sdf is not supported"
+        self._child_sdfs = args
+        
+        i = 0
+        while True:
+            if not i in SDF._all_sdfs[type(self).__name__]:
+                SDF._all_sdfs[type(self).__name__].add(i)
+                self._inst_name = type(self).__name__ + f"{i}"
+                break
+            i += 1
+
+    def __del__(self):
+        SDF._all_sdfs[type(self).__name__].remove(int(self._inst_name.removeprefix(type(self).__name__)))
 
     def __init_subclass__(cls) -> None:
         if cls.__name__ in SDF._all_sdfs:
             raise ValueError(f"duplicate SDF class called {cls.__name__} cannot be created since one with that name already exists!")
-        SDF._all_sdfs[cls.__name__] = 0
-        cls._hashable_items = []
+        SDF._all_sdfs[cls.__name__] = set()
+        cls._child_sdfs = []
         cls._param_names = {}
         cls._is_modifier = False
         for _, (param_name, param_obj) in enumerate(inspect.signature(cls.__init__).parameters.items()):
             if param_name == 'self':
                 continue
             if param_obj.annotation == SDF:
-                cls._hashable_items.append(param_name)
+                cls._child_sdfs.append(param_name)
                 cls._is_modifier = True
             else:
                 assert param_obj.annotation == 'vec3' or param_obj.annotation == float, f"invalid sdf parameter '{param_name}' of type {param_obj.annotation} found for sdf {cls.__name__}"
                 cls._param_names[param_name] = param_obj.annotation if type(param_obj.annotation) == str else param_obj.annotation.__name__
 
         if not cls._is_modifier:
-            assert hasattr(cls, "shader_definition")
-
-        # def make_init_wrapper(init_func, _hashable_items):
-        #     def init_wrapper(self, *args, **kwargs):
-        #         self._hashable_items = []
-        #         for i, name in _hashable_items:
-        #             if len(args) > i:
-        #                 self._hashable_items.append(args[i])
-        #             else:
-        #                 self._hashable_items.append(kwargs[name])
-        #         return cls.__init__(self, *args, **kwargs)
-        #     return init_wrapper
-        # cls.__init__ = make_init_wrapper(cls.__init__, _hashable_items)
-
-        # print(cls.__init__.__annotations__)
-        # print(inspect.signature(cls.__init__))
+            assert hasattr(cls, "sdf_definition")
 
     def get_all_sdf_types(self, sdf_types: set):
-        for s in self._inner_sdfs:
+        for s in self._child_sdfs:
             s.get_all_sdf_types(sdf_types)
             sdf_types.add(type(s))
         sdf_types.add(type(self))
+
+    def get_resolved_param_names(self):
+        pnames = {}
+        for k in type(self)._param_names:
+            pnames[k] = f"sdfin_{self._inst_name}_{k}"
+        return pnames
+
+    def get_all_param_names(self):
+        pn = dict()
+        for s in self._child_sdfs:
+            pn.update(s.get_all_param_names())
+        resolved = self.get_resolved_param_names()
+        for k in resolved:
+            pn[resolved[k]] = type(self)._param_names[k]
+        return pn
 
     def generate_shader(self):
         sdf_types = set()
@@ -81,29 +89,43 @@ class SDF(abc.ABC):
                     ShaderMethod(
                         name=st.__name__,
                         params=[ShaderParam(name=k, type=st._param_names[k]) for k in st._param_names],
-                        contents=st.shader_definition()
+                        contents=st.sdf_definition()
                     )
                 )
-        return funcs
+        cd = self.calling_definition("p", "d")
+        env = jinja2.Environment(loader=jinja2.PackageLoader('cax'))
+        pnames = self.get_all_param_names()
+        return env.get_template("sdf_shell.glsl.j2").render(inputs=[dict(name=p, type=pnames[p]) for p in pnames], funcs=funcs, main_sdf=cd)
+
 
     @abc.abstractmethod
     def jax_definition(self, p):
         """
-        This method performs some jax 
+        This method performs some jax operations
         """
         return jnp.inf
+    
+    def calling_definition(self, p: str, ret: str):
+        """
+        Return the block of shader code that goes in main and calls this SDF instance.
+
+        :param p: string representing input point to this SDF
+        :param ret: string of variable to write to
+        """
+        if not type(self)._is_modifier:
+            return f"{ret} = sdf_{type(self).__name__}({p}, {", ".join([f"sdfin_{self._inst_name}_{k}" for k in type(self)._param_names])});"
+        else:
+            raise NotImplementedError()
+
 
     def get_hash(self):
-        if not hasattr(self, "_hashable_items"):
+        if not hasattr(self, "_child_sdfs"):
             warnings.warn(f"sdf class {type(self).__name__} has no hashable items; did you forget to call super() constructor?")
             return f"{type(self).__name__}()"
-        assert len(type(self)._hashable_items) == len(self._hashable_items), "number of hashable items reported and detected in SDF signature don't match!"
+        assert len(type(self)._child_sdfs) == len(self._child_sdfs), "number of hashable items reported and detected in SDF signature don't match!"
         hashs = []
-        for h in self._hashable_items:
-            if not hasattr(h, "get_hash"):
-                hashs.append(h.__hash__())
-            else:
-                hashs.append(h.get_hash())
+        for h in self._child_sdfs:
+            hashs.append(h.get_hash())
         return f"{type(self).__name__}(" + ",".join(hashs) + ")"
     
     def __call__(self, p):
@@ -112,21 +134,16 @@ class SDF(abc.ABC):
 class translate(SDF):
     def __init__(self, sdf_in: SDF, offset: 'vec3'):
         super().__init__(sdf_in)
-        self._sdf = sdf_in
-        self._offset = offset
+        self.sdf_in = sdf_in
+        self.offset = offset
     
     def jax_definition(self, p):
-        offset = jnp.atleast_1d(self._offset)
-        return self._sdf(p - offset)
+        offset = jnp.atleast_1d(self.offset)
+        return self.sdf_in(p - offset)
     
-    # def sdft_definition(self)
-    
-    # @staticmethod
-    # def shader_definition():
-    #     return ShaderMethod(
-    #         params=[ShaderParam("offset", "vec3")],
-    #         contents="return p - offset;"
-    #     )
+    def calling_definition(self, p: str, ret: str):
+        params = self.get_resolved_param_names()
+        return self.sdf_in.calling_definition(f"{p} - {params['offset']}", ret)
     
 # class union(SDF):
 #     def __init__(self, *sdfs_in: SDF):
@@ -150,7 +167,7 @@ class sphere(SDF):
         return jnp.linalg.norm(p - center) - self._radius
     
     @classmethod
-    def shader_definition(cls):
+    def sdf_definition(cls):
         return "return length(p - center) - radius;"
 
 
