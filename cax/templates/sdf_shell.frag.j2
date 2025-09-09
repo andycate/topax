@@ -1,0 +1,68 @@
+#version 330 core
+
+const float POS_INFINITY = uintBitsToFloat(0x7F800000u);
+
+out vec4 fragColor;
+
+uniform vec2 _iResolution;
+uniform uint _maxSteps;
+uniform vec3 _camPose;
+uniform vec3 _lookingAt;
+uniform vec3 _camUp;
+uniform float _fx;
+uniform float _stopEpsilon;
+uniform float _tmax;
+
+{% for i in inputs %}
+uniform {{ i.type }} {{ i.name }};
+{% endfor %}
+
+
+{% for f in funcs %}
+float sdf_{{f.name}}(in vec3 p{% for p in f.params%}, in {{p.type}} {{p.name}}{% endfor %})
+{
+    {{f.contents}}
+}
+{% endfor %}
+
+float map(in vec3 p)
+{
+    {{main_sdf}}
+}
+
+vec3 mainImage( in vec2 fragCoord )
+{
+    vec3 cam_norm = normalize(_lookingAt - _camPose);
+    vec3 cam_right = normalize(cross(cam_norm, _camUp));
+    vec3 cam_down = normalize(cross(cam_right, cam_norm));
+    float fy = (_fx / _iResolution.x) * _iResolution.y;
+
+    vec2 normalized_coord = (fragCoord / _iResolution) - 0.5;
+    normalized_coord.x = normalized_coord.x * _fx;
+    normalized_coord.y = normalized_coord.y * fy;
+
+    vec3 p0 = cam_right * normalized_coord.x + cam_down * normalized_coord.y;
+    p0 += _camPose;
+
+        
+    vec3 tot = vec3(0.0);
+
+    // raymarch
+    const float tmax = 3.0;
+    float t = 0.0;
+    float h = 0.0;
+    vec3 pos;
+    for( int i=0; i<_maxSteps; i++ )
+    {
+        pos = p0 + t*cam_norm;
+        h = map(pos);
+        if( h<_stopEpsilon || t>_tmax ) break;
+        t += h;
+    }
+
+    return pos % 1.0;
+}
+
+void main() {
+    fragColor = vec4(mainImage(gl_FragCoord.xy), 1.0);
+}

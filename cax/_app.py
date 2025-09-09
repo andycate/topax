@@ -26,52 +26,15 @@ class SceneHandler:
     def __init__(self, window):
         self._window = window
         self._fb_width, self._fb_height = glfw.get_framebuffer_size(window)
-        self._frame_buf = None
-        self._texture_id = None
-        self._sdf = _dummy_sdf()
-        self._hifi_render = None
-        self._lofi_render = None
+        self._program_id = None
         self._camera_position = np.array([0.0, 0.0, 1.0])
         self._camera_up = np.array([0.0, 1.0, 0.0])
         self._looking_at = np.array([0.0, 0.0, 0.0])
         self._fx = 1.0
 
-        self._make_texture()
-        self._gen_render_funcs()
-
     def __del__(self):
-        gl.glDeleteTextures(1, [self._texture_id])
-
-    def _gen_render_funcs(self):
-        self._hifi_render = redraw_ortho.trace(self._sdf, self._fb_width, self._fb_height, 100, self._camera_position, self._camera_up, self._looking_at, self._fx).lower().compile()
-        self._lofi_render = redraw_ortho.trace(self._sdf, self._fb_width, self._fb_height, 30, self._camera_position, self._camera_up, self._looking_at, self._fx).lower().compile()
-
-    def _make_texture(self):
-        self._frame_buf = np.zeros((self._fb_height, self._fb_width, 4), dtype=np.float32)
-        gl.glViewport(0, 0, self._fb_width, self._fb_height)
-        gl.glEnable(gl.GL_BLEND)
-        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
-        # Generate a new texture
-        if self._texture_id is None:
-            self._texture_id = gl.glGenTextures(1)
-        gl.glBindTexture(gl.GL_TEXTURE_2D, self._texture_id)
-
-        # Set texture parameters
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
-        gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
-
-        gl.glTexImage2D(
-            gl.GL_TEXTURE_2D,
-            0,
-            gl.GL_RGBA32F,
-            self._fb_width,
-            self._fb_height,
-            0,
-            gl.GL_RGBA,
-            gl.GL_FLOAT,
-            self._frame_buf,
-        )
-        return self._texture_id
+        if self._program_id is not None:
+            gl.glDeleteProgram(self._program_id)
     
     def _draw_view_cube(self, size=1.0):
         vp_size = 240
@@ -103,10 +66,22 @@ class SceneHandler:
             for v in verts:
                 gl.glVertex3f(*v)
             gl.glEnd()
+
+    def _compile_shader(self, src, shader_type):
+        shader = gl.glCreateShader(shader_type)
+        gl.glShaderSource(shader, src)
+        gl.glCompileShader(shader)
+        if not gl.glGetShaderiv(shader, gl.GL_COMPILE_STATUS):
+            raise RuntimeError(gl.glGetShaderInfoLog(shader).decode())
+        return shader
     
     def update_sdf(self, sdf):
-        self._sdf = sdf
-        self._gen_render_funcs()
+        func = sdf.get_sdf_shader_func()
+
+        if self._program_id is not None:
+            gl.glDeleteProgram(self._program_id)
+        
+
 
     def update_fb_size(self):
         self._fb_width, self._fb_height = glfw.get_framebuffer_size(self._window)
@@ -249,6 +224,11 @@ def main():
     # Initialize glfw window
     if not glfw.init():
         raise RuntimeError("Failed to initialize GLFW")
+    
+    glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+    glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+    glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, gl.GL_TRUE)
+    glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 
     window = glfw.create_window(800, 600, "CAX", None, None)
     if not window:
@@ -256,7 +236,6 @@ def main():
         raise RuntimeError("Failed to create GLFW window")
 
     glfw.make_context_current(window)
-    gl.glEnable(gl.GL_DEPTH_TEST)
 
     # Initialize scene handler
     scene = SceneHandler(window)
