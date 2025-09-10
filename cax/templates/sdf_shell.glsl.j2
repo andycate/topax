@@ -32,7 +32,7 @@ float map(in vec3 p)
     return d;
 }
 
-vec3 mainImage( in vec2 fragCoord )
+vec4 mainImage( in vec2 fragCoord )
 {
     vec3 cam_norm = normalize(_lookingAt - _camPose);
     vec3 cam_right = normalize(cross(cam_norm, _camUp));
@@ -61,10 +61,12 @@ vec3 mainImage( in vec2 fragCoord )
         if( h<_stopEpsilon || t>_tmax ) break;
         t += h;
     }
+    float opacity = 0.0;
+    if( h<_stopEpsilon ) opacity = 1.0;
 
-    return mod(pos, 1.0);
+    return vec4(mod(pos, 1.0), opacity);
 }
 
 void main() {
-    fragColor = vec4(mainImage(gl_FragCoord.xy), 1.0);
+    fragColor = mainImage(gl_FragCoord.xy);
 }

@@ -27,6 +27,7 @@ class SDF(abc.ABC):
             assert type(s).__base__ == SDF, f"unsupported hashable type {type(s)} detected, SDFs currently only support other SDFs as hashable types"
             assert s not in args[i+1:], "Currently, passing multiple of the same sdf instance to a modifier sdf is not supported"
         self._child_sdfs = args
+        self._var_count = 0
         
         i = 0
         while True:
@@ -95,8 +96,13 @@ class SDF(abc.ABC):
             attribute = self.__getattribute__(pn)
             if hasattr(attribute, "copy"):
                 attribute = attribute.copy()
-            values[pn] = ShaderParam(name=resolved[pn], type=type(self)._param_names[pn], value=attribute)
+            values[resolved[pn]] = ShaderParam(name=resolved[pn], type=type(self)._param_names[pn], value=attribute)
         return values
+    
+    def get_new_var(self):
+        new_var = f"v_{self._inst_name}_var{self._var_count}"
+        self._var_count += 1
+        return new_var
 
     def generate_shader(self, template):
         sdf_types = set()
@@ -130,7 +136,7 @@ class SDF(abc.ABC):
         :param ret: string of variable to write to
         """
         if not type(self)._is_modifier:
-            return f"{ret} = sdf_{type(self).__name__}({p + (", " if len(type(self)._param_names) > 0 else "") + ", ".join([f"sdfin_{self._inst_name}_{k}" for k in type(self)._param_names])});"
+            return f"{ret} = sdf_{type(self).__name__}({p + (", " if len(type(self)._param_names) > 0 else "") + ", ".join([f"sdfin_{self._inst_name}_{k}" for k in type(self)._param_names])});\n"
         else:
             raise NotImplementedError()
 
@@ -173,16 +179,25 @@ class translate(SDF):
         params = self.get_resolved_param_names()
         return self.sdf_in.calling_definition(f"{p} - {params['offset']}", ret)
     
-# class union(SDF):
-#     def __init__(self, *sdfs_in: SDF):
-#         super().__init__(*sdfs_in)
-#         self._sdfs = sdfs_in
+class union(SDF):
+    def __init__(self, sdf_in_1: SDF, sdf_in_2: SDF):
+        super().__init__(sdf_in_1, sdf_in_2)
+        self.sdf_in_1 = sdf_in_1
+        self.sdf_in_2 = sdf_in_2
     
-#     def jax_definition(self, p):
-#         dists = jnp.zeros(len(self._sdfs))
-#         for i, s in enumerate(self._sdfs):
-#             dists = dists.at[i].set(s(p))
-#         return jnp.min(dists).item()
+    def jax_definition(self, p):
+        return jnp.minimum(self.sdf_in_1(p), self.sdf_in_2(p)).item()
+    
+    def calling_definition(self, p: str, ret: str):
+        defin = ""
+        var1 = self.get_new_var()
+        var2 = self.get_new_var()
+        defin += f"float {var1};\n"
+        defin += f"float {var2};\n"
+        defin += self.sdf_in_1.calling_definition(p, var1)
+        defin += self.sdf_in_2.calling_definition(p, var2)
+        defin += f"{ret} = min({var1}, {var2});\n"
+        return defin
 
 class sphere(SDF):
     def __init__(self, radius: float, center: 'vec3'=[0.0, 0.0, 0.0]):
@@ -196,7 +211,22 @@ class sphere(SDF):
     
     @classmethod
     def sdf_definition(cls):
-        return "return length(p - center) - radius;"
+        return "return length(p - center) - radius;\n"
+    
+
+class box(SDF):
+    def __init__(self, dims: 'vec3'):
+        super().__init__()
+        self.dims = dims
+    
+    def jax_definition(self, p):
+        dims = jnp.atleast_1d(self.dims)
+        d = jnp.abs(p)-dims
+        return jnp.linalg.norm(jnp.maximum(d,0.0), axis=-1) + jnp.minimum(jnp.max(d, axis=-1),0.0)
+    
+    @classmethod
+    def sdf_definition(cls):
+        return "vec3 d = abs(p) - dims;\nreturn length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0);\n"
 
 
 # def sphere(radius, position=[0., 0., 0.]):

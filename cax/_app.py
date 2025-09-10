@@ -87,7 +87,6 @@ void main() {
         if sdf.get_hash() != self._sdf_hash:
             self._sdf_hash = sdf.get_hash()
             shader = sdf.generate_shader(self._template)
-            print(shader)
 
             if self._program_id is not None:
                 gl.glDeleteProgram(self._program_id)
@@ -124,22 +123,18 @@ void main() {
         for p in params:
             sp = params[p]
             loc = gl.glGetUniformLocation(self._program_id, sp.name)
+            print(f"param {sp.name} loc {loc} type {sp.type} value {sp.value}")
             match sp.type:
                 case "vec4":
                     gl.glUniform4f(loc, sp.value[0], sp.value[1], sp.value[2], sp.value[3])
-                    break
                 case "vec3":
                     gl.glUniform3f(loc, sp.value[0], sp.value[1], sp.value[2])
-                    break
                 case "vec2":
                     gl.glUniform2f(loc, sp.value[0], sp.value[1])
-                    break
                 case "float":
                     gl.glUniform1f(loc, sp.value if not hasattr(sp.value, "item") else sp.value.item())
-                    break
                 case _:
                     raise NotImplementedError()
-        print("done setting uniforms")
 
     def rotate_2d(self, dx, dy):
         cam_right = normalize(np.linalg.cross(-self._camera_position, self._camera_up))
@@ -162,6 +157,9 @@ void main() {
         gl.glViewport(0, 0, self._fb_width, self._fb_height)
         gl.glClearColor(0.2, 0.2, 0.2, 1.0)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
+
+        gl.glEnable(gl.GL_BLEND)
+        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
 
         gl.glUniform2f(self._shader_uniforms["i_resolution"], self._fb_width, self._fb_height)
         gl.glUniform1ui(self._shader_uniforms["max_steps"], 256)
@@ -212,9 +210,12 @@ class ProjectInterface:
 
     def _file_change_event(self, event):
         if self._target is None: return
-        if Path(event.src_path).samefile(self._target):
-            self._sdf_queue.put(self._target)
-            glfw.post_empty_event()
+        try:
+            if Path(event.src_path).samefile(self._target):
+                self._sdf_queue.put(self._target)
+                glfw.post_empty_event()
+        except FileNotFoundError as e:
+            pass
 
 def main():
     # Parse argments
