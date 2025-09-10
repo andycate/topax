@@ -1,12 +1,14 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import jinja2
 
 import OpenGL.GL as gl
 import OpenGL.GLUT as glut
 import OpenGL.GLU as glu
 import glfw
 
+import sys
 from functools import partial
 from typing import NamedTuple
 import threading
@@ -15,78 +17,129 @@ import time
 from IPython import embed
 import argparse
 from pathlib import Path
-import runpy
+import importlib.util
 
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from cax._utils import redraw_ortho, rotation_matrix, rotation_matrix_about_vector, _dummy_sdf, normalize
+from cax._utils import (
+    redraw_ortho, 
+    rotation_matrix, 
+    rotation_matrix_about_vector, 
+    normalize,
+    compile_shader
+)
+import cax.sdfs
+from cax.sdfs import empty
 
 class SceneHandler:
+    QUAD = np.array([
+        -1.0, -1.0,
+        1.0, -1.0,
+        -1.0,  1.0,
+        1.0,  1.0
+    ], dtype=np.float32)
+    VERTEX_SHADER_SOURCE = """
+#version 330 core
+layout(location = 0) in vec2 aPos;
+out vec2 vUV;
+void main() {
+    vUV = aPos * 0.5 + 0.5;  // map [-1,1] -> [0,1]
+    gl_Position = vec4(aPos, 0.0, 1.0);
+}
+"""
     def __init__(self, window):
         self._window = window
         self._fb_width, self._fb_height = glfw.get_framebuffer_size(window)
         self._program_id = None
+        self._shader_source = ""
+        self._sdf_hash = None
+        self._vao = gl.glGenVertexArrays(1)
+        self._vbo = gl.glGenBuffers(1)
         self._camera_position = np.array([0.0, 0.0, 1.0])
         self._camera_up = np.array([0.0, 1.0, 0.0])
         self._looking_at = np.array([0.0, 0.0, 0.0])
         self._fx = 1.0
+        self._template = jinja2.Environment(loader=jinja2.PackageLoader('cax')).get_template("sdf_shell.glsl.j2")
+
+        self._shader_uniforms = dict(
+            i_resolution=None,
+            max_steps=None,
+            cam_pose=None,
+            looking_at=None,
+            cam_up=None,
+            fx=None,
+            stop_epsilon=None,
+            tmax=None
+        )
+
+        empty_sdf = empty()
+        self.update_sdf(empty_sdf)
 
     def __del__(self):
         if self._program_id is not None:
             gl.glDeleteProgram(self._program_id)
-    
-    def _draw_view_cube(self, size=1.0):
-        vp_size = 240
-        gl.glViewport(0, self._fb_height-vp_size, vp_size, vp_size)
-        gl.glMatrixMode(gl.GL_PROJECTION)
-        gl.glLoadIdentity()
-        # glu.gluPerspective(35, 1.0, 0.1, 10)
-        gl.glOrtho(-1, 1, -1, 1, -1, 10)
-
-        gl.glMatrixMode(gl.GL_MODELVIEW)
-        gl.glLoadIdentity()
-        glu.gluLookAt(*(self._camera_position / jnp.linalg.norm(self._camera_position)), 0,0,0, *self._camera_up)
-
-        # apply same rotation as scene
-        hs = size / 2
-        # 6 colored faces
-        faces = [
-            ((1,0,0), [(hs,-hs,-hs),(hs,hs,-hs),(hs,hs,hs),(hs,-hs,hs)]),   # +X red
-            ((0,1,0), [(-hs,-hs,hs),(-hs,hs,hs),(-hs,hs,-hs),(-hs,-hs,-hs)]), # -X green
-            ((0,0,1), [(-hs,hs,hs),(hs,hs,hs),(hs,hs,-hs),(-hs,hs,-hs)]),   # +Y blue
-            ((1,1,0), [(-hs,-hs,-hs),(hs,-hs,-hs),(hs,-hs,hs),(-hs,-hs,hs)]), # -Y yellow
-            ((1,0,1), [(-hs,-hs,hs),(hs,-hs,hs),(hs,hs,hs),(-hs,hs,hs)]),   # +Z magenta
-            ((0,1,1), [(-hs,hs,-hs),(hs,hs,-hs),(hs,-hs,-hs),(-hs,-hs,-hs)]) # -Z cyan
-        ]
-        gl.glEnable(gl.GL_DEPTH_TEST)
-        for color, verts in faces:
-            gl.glColor3f(*color)
-            gl.glBegin(gl.GL_QUADS)
-            for v in verts:
-                gl.glVertex3f(*v)
-            gl.glEnd()
-
-    def _compile_shader(self, src, shader_type):
-        shader = gl.glCreateShader(shader_type)
-        gl.glShaderSource(shader, src)
-        gl.glCompileShader(shader)
-        if not gl.glGetShaderiv(shader, gl.GL_COMPILE_STATUS):
-            raise RuntimeError(gl.glGetShaderInfoLog(shader).decode())
-        return shader
+        # gl.glDeleteBuffers(self._vbo)
+        # gl.glDeleteVertexArrays(self._vao)
     
     def update_sdf(self, sdf):
-        func = sdf.get_sdf_shader_func()
+        print(sdf)
+        if sdf.get_hash() != self._sdf_hash:
+            self._sdf_hash = sdf.get_hash()
+            shader = sdf.generate_shader(self._template)
+            print(shader)
 
-        if self._program_id is not None:
-            gl.glDeleteProgram(self._program_id)
-        
+            if self._program_id is not None:
+                gl.glDeleteProgram(self._program_id)
+            
+            print("compiling shader")
+            vs = compile_shader(SceneHandler.VERTEX_SHADER_SOURCE, gl.GL_VERTEX_SHADER)
+            fs = compile_shader(shader, gl.GL_FRAGMENT_SHADER)
+            self._program_id = gl.glCreateProgram()
+            gl.glAttachShader(self._program_id, vs)
+            gl.glAttachShader(self._program_id, fs)
+            gl.glLinkProgram(self._program_id)
+            if not gl.glGetProgramiv(self._program_id, gl.GL_LINK_STATUS):
+                raise RuntimeError(gl.glGetProgramInfoLog(self._program_id).decode())
+            gl.glDeleteShader(vs)
+            gl.glDeleteShader(fs)
+            gl.glUseProgram(self._program_id)
 
+        gl.glBindVertexArray(self._vao)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._vbo)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER, SceneHandler.QUAD.nbytes, SceneHandler.QUAD, gl.GL_STATIC_DRAW)
+        gl.glEnableVertexAttribArray(0)
+        gl.glVertexAttribPointer(0, 2, gl.GL_FLOAT, gl.GL_FALSE, 0, None)
 
-    def update_fb_size(self):
-        self._fb_width, self._fb_height = glfw.get_framebuffer_size(self._window)
-        self._make_texture()
-        self._gen_render_funcs()
+        self._shader_uniforms["i_resolution"] = gl.glGetUniformLocation(self._program_id, "_iResolution")
+        self._shader_uniforms["max_steps"] = gl.glGetUniformLocation(self._program_id, "_maxSteps")
+        self._shader_uniforms["cam_pose"] = gl.glGetUniformLocation(self._program_id, "_camPose")
+        self._shader_uniforms["looking_at"] = gl.glGetUniformLocation(self._program_id, "_lookingAt")
+        self._shader_uniforms["cam_up"] = gl.glGetUniformLocation(self._program_id, "_camUp")
+        self._shader_uniforms["fx"] = gl.glGetUniformLocation(self._program_id, "_fx")
+        self._shader_uniforms["stop_epsilon"] = gl.glGetUniformLocation(self._program_id, "_stopEpsilon")
+        self._shader_uniforms["tmax"] = gl.glGetUniformLocation(self._program_id, "_tmax")
+
+        params = sdf.get_all_param_values()
+        for p in params:
+            sp = params[p]
+            loc = gl.glGetUniformLocation(self._program_id, sp.name)
+            match sp.type:
+                case "vec4":
+                    gl.glUniform4f(loc, sp.value[0], sp.value[1], sp.value[2], sp.value[3])
+                    break
+                case "vec3":
+                    gl.glUniform3f(loc, sp.value[0], sp.value[1], sp.value[2])
+                    break
+                case "vec2":
+                    gl.glUniform2f(loc, sp.value[0], sp.value[1])
+                    break
+                case "float":
+                    gl.glUniform1f(loc, sp.value if not hasattr(sp.value, "item") else sp.value.item())
+                    break
+                case _:
+                    raise NotImplementedError()
+        print("done setting uniforms")
 
     def rotate_2d(self, dx, dy):
         cam_right = normalize(np.linalg.cross(-self._camera_position, self._camera_up))
@@ -102,74 +155,25 @@ class SceneHandler:
         self._camera_position *= factor
         
 
-    def draw_scene(self, fast=False):
+    def draw_scene(self):
         """
         This function is responsible for drawing all parts of the scene. It will take in the 
         """
-        if fast:
-            np.copyto(
-                self._frame_buf, 
-                np.array(
-                    self._lofi_render(self._camera_position, self._camera_up, self._looking_at, self._fx), 
-                    copy=False, 
-                    dtype=np.float32
-                )
-            )
-        else:
-            np.copyto(
-                self._frame_buf, 
-                np.array(
-                    self._hifi_render(self._camera_position, self._camera_up, self._looking_at, self._fx), 
-                    copy=False, 
-                    dtype=np.float32
-                )
-            )
-        
         gl.glViewport(0, 0, self._fb_width, self._fb_height)
         gl.glClearColor(0.2, 0.2, 0.2, 1.0)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
 
-        gl.glBindTexture(gl.GL_TEXTURE_2D, self._texture_id)
-        gl.glTexSubImage2D(
-            gl.GL_TEXTURE_2D,
-            0,
-            0, 0,
-            self._fb_width, self._fb_height,
-            gl.GL_RGBA,
-            gl.GL_FLOAT,
-            self._frame_buf,
-        )
+        gl.glUniform2f(self._shader_uniforms["i_resolution"], self._fb_width, self._fb_height)
+        gl.glUniform1ui(self._shader_uniforms["max_steps"], 256)
+        gl.glUniform3f(self._shader_uniforms["cam_pose"], *self._camera_position)
+        gl.glUniform3f(self._shader_uniforms["looking_at"], *self._looking_at)
+        gl.glUniform3f(self._shader_uniforms["cam_up"], *self._camera_up)
+        gl.glUniform1f(self._shader_uniforms["fx"], self._fx)
+        gl.glUniform1f(self._shader_uniforms["stop_epsilon"], 0.0001)
+        gl.glUniform1f(self._shader_uniforms["tmax"], 1000.0)
 
-        # Bind the texture to display it
-        gl.glDisable(gl.GL_DEPTH_TEST)
-
-        gl.glMatrixMode(gl.GL_PROJECTION)
-        gl.glLoadIdentity()
-        gl.glOrtho(-1, 1, -1, 1, -1, 1)
-
-        gl.glMatrixMode(gl.GL_MODELVIEW)
-        gl.glLoadIdentity()
-
-        gl.glEnable(gl.GL_TEXTURE_2D)
-        gl.glEnable(gl.GL_BLEND)
-        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
-        gl.glColor3f(1.0, 1.0, 1.0)
-
-        # Draw a quad to display the texture
-        gl.glBegin(gl.GL_QUADS)
-        gl.glTexCoord2f(0, 0)
-        gl.glVertex2f(-1, -1)
-        gl.glTexCoord2f(1, 0)
-        gl.glVertex2f(1, -1)
-        gl.glTexCoord2f(1, 1)
-        gl.glVertex2f(1, 1)
-        gl.glTexCoord2f(0, 1)
-        gl.glVertex2f(-1, 1)
-        gl.glEnd()
-
-        gl.glDisable(gl.GL_TEXTURE_2D)
-
-        self._draw_view_cube()
+        gl.glBindVertexArray(self._vao)
+        gl.glDrawArrays(gl.GL_TRIANGLE_STRIP, 0, 4)
 
         glfw.swap_buffers(self._window)
 
@@ -204,6 +208,7 @@ class ProjectInterface:
             return
         self._target = path
         self._sdf_queue.put(self._target)
+        glfw.post_empty_event()
 
     def _file_change_event(self, event):
         if self._target is None: return
@@ -249,24 +254,20 @@ def main():
             dragging = (action == glfw.PRESS)
             last_pos_x, last_pos_y = glfw.get_cursor_pos(window)
             if not dragging:
-                scene.draw_scene(fast=False)
-
-    def window_resize_callback(win, width, height):
-        scene.update_fb_size()
+                scene.draw_scene()
 
     def scroll_callback(win, xoffset, yoffset):
         scene.zoom(yoffset)
-        scene.draw_scene(fast=True)
+        scene.draw_scene()
 
     glfw.set_mouse_button_callback(window, mouse_button_callback)
-    glfw.set_window_size_callback(window, window_resize_callback)
     glfw.set_scroll_callback(window, scroll_callback)
 
     # Setup command message queue and project interface
     sdf_queue = queue.Queue()
     project_interface = ProjectInterface(project_dir, sdf_queue)
 
-    scene.draw_scene(fast=False)
+    scene.draw_scene()
 
     # Main application loop
     while not glfw.window_should_close(window):
@@ -279,12 +280,17 @@ def main():
 
             if dx != 0 or dy != 0:
                 scene.rotate_2d(dx, dy)
-                scene.draw_scene(fast=True)
+                scene.draw_scene()
 
         while not sdf_queue.empty():
+            print("sdf queue item")
             new_sdf = sdf_queue.get()
-            scene.update_sdf(runpy.run_path(str(new_sdf))["part1"])
-            scene.draw_scene(fast=False)
+            # sys.modules['cax.sdfs'] = cax.sdfs
+            spec = importlib.util.spec_from_file_location("_external_script", new_sdf)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            scene.update_sdf(module.make_part())
+            scene.draw_scene()
             
         glfw.wait_events()
 

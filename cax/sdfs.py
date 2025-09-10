@@ -2,15 +2,16 @@ import warnings
 import abc
 from dataclasses import dataclass
 import inspect
+from typing import Any
 
 import jax
 import jax.numpy as jnp
-import jinja2
 
 @dataclass
 class ShaderParam:
     name: str
     type: str
+    value: Any = None
 
 @dataclass
 class ShaderMethod:
@@ -36,7 +37,13 @@ class SDF(abc.ABC):
             i += 1
 
     def __del__(self):
-        SDF._all_sdfs[type(self).__name__].remove(int(self._inst_name.removeprefix(type(self).__name__)))
+        try:
+            idx = int(self._inst_name.removeprefix(type(self).__name__))
+            if type(self).__name__ in SDF._all_sdfs:
+                SDF._all_sdfs[type(self).__name__].discard(idx)
+        except Exception:
+            # don't raise from __del__ — it's unsafe and can crash interpreter shutdown
+            pass
 
     def __init_subclass__(cls) -> None:
         if cls.__name__ in SDF._all_sdfs:
@@ -78,8 +85,20 @@ class SDF(abc.ABC):
         for k in resolved:
             pn[resolved[k]] = type(self)._param_names[k]
         return pn
+    
+    def get_all_param_values(self):
+        values = dict()
+        for s in self._child_sdfs:
+            values.update(s.get_all_param_values())
+        resolved = self.get_resolved_param_names()
+        for pn in resolved:
+            attribute = self.__getattribute__(pn)
+            if hasattr(attribute, "copy"):
+                attribute = attribute.copy()
+            values[pn] = ShaderParam(name=resolved[pn], type=type(self)._param_names[pn], value=attribute)
+        return values
 
-    def generate_shader(self):
+    def generate_shader(self, template):
         sdf_types = set()
         funcs = []
         self.get_all_sdf_types(sdf_types)
@@ -93,10 +112,8 @@ class SDF(abc.ABC):
                     )
                 )
         cd = self.calling_definition("p", "d")
-        env = jinja2.Environment(loader=jinja2.PackageLoader('cax'))
         pnames = self.get_all_param_names()
-        return env.get_template("sdf_shell.glsl.j2").render(inputs=[dict(name=p, type=pnames[p]) for p in pnames], funcs=funcs, main_sdf=cd)
-
+        return template.render(inputs=[dict(name=p, type=pnames[p]) for p in pnames], funcs=funcs, main_sdf=cd)
 
     @abc.abstractmethod
     def jax_definition(self, p):
@@ -113,7 +130,7 @@ class SDF(abc.ABC):
         :param ret: string of variable to write to
         """
         if not type(self)._is_modifier:
-            return f"{ret} = sdf_{type(self).__name__}({p}, {", ".join([f"sdfin_{self._inst_name}_{k}" for k in type(self)._param_names])});"
+            return f"{ret} = sdf_{type(self).__name__}({p + (", " if len(type(self)._param_names) > 0 else "") + ", ".join([f"sdfin_{self._inst_name}_{k}" for k in type(self)._param_names])});"
         else:
             raise NotImplementedError()
 
@@ -130,6 +147,17 @@ class SDF(abc.ABC):
     
     def __call__(self, p):
         return self.jax_definition(p)
+
+class empty(SDF):
+    def __init__(self):
+        super().__init__()
+    
+    def jax_definition(self, p):
+        return jnp.inf
+    
+    @classmethod
+    def sdf_definition(cls):
+        return "return POS_INFINITY;"
 
 class translate(SDF):
     def __init__(self, sdf_in: SDF, offset: 'vec3'):
@@ -159,12 +187,12 @@ class translate(SDF):
 class sphere(SDF):
     def __init__(self, radius: float, center: 'vec3'=[0.0, 0.0, 0.0]):
         super().__init__()
-        self._radius = radius
-        self._center = center
+        self.radius = radius
+        self.center = center
     
     def jax_definition(self, p):
-        center = jnp.atleast_1d(self._center)
-        return jnp.linalg.norm(p - center) - self._radius
+        center = jnp.atleast_1d(self.center)
+        return jnp.linalg.norm(p - center) - self.radius
     
     @classmethod
     def sdf_definition(cls):

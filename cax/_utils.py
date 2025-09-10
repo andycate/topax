@@ -1,8 +1,10 @@
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from functools import partial
+import OpenGL.GL as gl
 
 def norm(v, axis=-1, keepdims=False, eps=0.0):
     return jnp.sqrt((v*v).sum(axis, keepdims=keepdims).clip(eps))
@@ -35,11 +37,6 @@ def rotation_matrix_about_vector(angle, axis_vec):
         [z*x*C - y*s,   z*y*C + x*s, c + z*z*C]
     ])
 
-def _dummy_sdf():
-    def _df(p):
-        return jnp.array([jnp.inf]).repeat(p.shape[0])
-    return _df
-
 def raycast_ortho(sdf, dir, step_n, p0):
     dir = jnp.atleast_2d(dir)
     def f(_, p):
@@ -67,3 +64,11 @@ def redraw_ortho(sdf, w, h, step_n, camera_position, camera_up, looking_at, fx):
     # shading = jnp.abs(shading)
     return jnp.concatenate((hit_pos.reshape(h, w, 3) % 1.0, mask.reshape(h, w, 1)), axis=-1)
     # return jnp.concatenate((shading, mask[:, jnp.newaxis]), axis=-1).reshape(h, w, 4)
+
+def compile_shader(src, shader_type):
+    shader = gl.glCreateShader(shader_type)
+    gl.glShaderSource(shader, src)
+    gl.glCompileShader(shader)
+    if not gl.glGetShaderiv(shader, gl.GL_COMPILE_STATUS):
+        raise RuntimeError(gl.glGetShaderInfoLog(shader).decode())
+    return shader
