@@ -1,10 +1,10 @@
 import jinja2
 
-from cax._utils import make_shader_const
-from cax.ops import Const, Op, OpType
+from topax._utils import make_shader_const
+from topax.ops import Const, Op, OpType
 
 class Builder:
-    template = jinja2.Environment(loader=jinja2.PackageLoader('cax')).get_template('shader.glsl.j2')
+    template = jinja2.Environment(loader=jinja2.PackageLoader('topax')).get_template('shader.glsl.j2')
     def __init__(self, sdf):
         self.sdf = sdf
         self.p = Const(None, 'p', 'vec3')

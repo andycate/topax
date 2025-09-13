@@ -2,7 +2,7 @@ from enum import Enum
 from typing import Any
 from dataclasses import dataclass
 
-from cax._utils import resolve_type
+from topax._utils import resolve_type
 
 # TODO: make this enum numbering better
 class OpType(Enum):

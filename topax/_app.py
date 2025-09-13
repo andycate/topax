@@ -5,17 +5,16 @@ from pathlib import Path
 import importlib.util
 
 import numpy as np
-import jinja2
 import OpenGL.GL as gl
 import glfw
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from IPython import embed
 
-from cax._utils import compile_shader, rotation_matrix_about_vector, normalize
-from cax._builders import Builder
-from cax.sdfs import empty, box
-from cax.ops import Const
+from topax._utils import compile_shader, rotation_matrix_about_vector, normalize
+from topax._builders import Builder
+from topax.sdfs import empty
+from topax.ops import Const
 
 class SceneHandler:
     QUAD = np.array([
@@ -57,7 +56,7 @@ void main() {
             tmax=None
         )
 
-        self.update_sdf(box([0.3, 0.4, 0.5]))
+        self.update_sdf(empty())
 
     def __del__(self):
         if self._program_id is not None:
@@ -224,7 +223,7 @@ def main():
     glfw.window_hint(glfw.OPENGL_FORWARD_COMPAT, gl.GL_TRUE)
     glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 
-    window = glfw.create_window(800, 600, "CAX", None, None)
+    window = glfw.create_window(800, 600, "TOPAX", None, None)
     if not window:
         glfw.terminate()
         raise RuntimeError("Failed to create GLFW window")

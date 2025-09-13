@@ -1,15 +1,9 @@
 import abc
-from typing import Any
-from enum import Enum
-from dataclasses import dataclass
 
-import numpy as np
 from numpy.typing import ArrayLike
-import jax.numpy as jnp
-import jinja2
 
-from cax._utils import resolve_type
-from cax.ops import Op, OpType, Const
+from topax._utils import resolve_type
+from topax.ops import Op, OpType, Const
 
 class SDF(abc.ABC):
     def __init__(self, *args, **kwargs):
