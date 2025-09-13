@@ -1,7 +1,5 @@
 #version 330 core
 
-const float POS_INFINITY = uintBitsToFloat(0x7F800000u);
-
 out vec4 fragColor;
 
 uniform vec2 _iResolution;
@@ -13,22 +11,16 @@ uniform float _fx;
 uniform float _stopEpsilon;
 uniform float _tmax;
 
-{% for i in inputs -%}
+{% for i in global_inputs -%}
 uniform {{ i.type }} {{ i.name }};
-{% endfor -%}
-
-
-{% for f in funcs %}
-float sdf_{{f.name}}(in vec3 p{% for p in f.params%}, in {{p.type}} {{p.name}}{% endfor %})
-{
-    {{f.contents}}
-}
 {% endfor %}
 
 float map(in vec3 p)
 {
     float d;
-    {{main_sdf}}
+    {% for line in lines -%}
+    {{line}}
+    {% endfor %}
     return d;
 }
 

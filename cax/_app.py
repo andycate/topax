@@ -1,36 +1,21 @@
-import jax
-import jax.numpy as jnp
-import numpy as np
-import jinja2
-
-import OpenGL.GL as gl
-import OpenGL.GLUT as glut
-import OpenGL.GLU as glu
-import glfw
-
-import sys
-from functools import partial
-from typing import NamedTuple
 import threading
 import queue
-import time
-from IPython import embed
 import argparse
 from pathlib import Path
 import importlib.util
 
+import numpy as np
+import jinja2
+import OpenGL.GL as gl
+import glfw
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
+from IPython import embed
 
-from cax._utils import (
-    redraw_ortho, 
-    rotation_matrix, 
-    rotation_matrix_about_vector, 
-    normalize,
-    compile_shader
-)
-import cax.sdfs
+from cax._utils import compile_shader, rotation_matrix_about_vector, normalize
+from cax._builders import Builder
 from cax.sdfs import empty
+from cax.ops import Const
 
 class SceneHandler:
     QUAD = np.array([
@@ -53,14 +38,13 @@ void main() {
         self._fb_width, self._fb_height = glfw.get_framebuffer_size(window)
         self._program_id = None
         self._shader_source = ""
-        self._sdf_hash = None
+        self._sdf_repr = None
         self._vao = gl.glGenVertexArrays(1)
         self._vbo = gl.glGenBuffers(1)
         self._camera_position = np.array([0.0, 0.0, 1.0])
         self._camera_up = np.array([0.0, 1.0, 0.0])
         self._looking_at = np.array([0.0, 0.0, 0.0])
         self._fx = 1.0
-        self._template = jinja2.Environment(loader=jinja2.PackageLoader('cax')).get_template("sdf_shell.glsl.j2")
 
         self._shader_uniforms = dict(
             i_resolution=None,
@@ -73,8 +57,7 @@ void main() {
             tmax=None
         )
 
-        empty_sdf = empty()
-        self.update_sdf(empty_sdf)
+        self.update_sdf(empty())
 
     def __del__(self):
         if self._program_id is not None:
@@ -83,17 +66,19 @@ void main() {
         # gl.glDeleteVertexArrays(self._vao)
     
     def update_sdf(self, sdf):
-        print(sdf)
-        if sdf.get_hash() != self._sdf_hash:
-            self._sdf_hash = sdf.get_hash()
-            shader = sdf.generate_shader(self._template)
+        print("got new sdf")
+        sdf_repr = repr(sdf(Const(None, 'p', 'vec3')))
+        builder = Builder(sdf)
+        if sdf_repr != self._sdf_repr:
+            self._sdf_repr = sdf_repr
+            shader_code = builder.build()
+            input_vars = builder.get_input_vars()
 
             if self._program_id is not None:
                 gl.glDeleteProgram(self._program_id)
             
-            print("compiling shader")
             vs = compile_shader(SceneHandler.VERTEX_SHADER_SOURCE, gl.GL_VERTEX_SHADER)
-            fs = compile_shader(shader, gl.GL_FRAGMENT_SHADER)
+            fs = compile_shader(shader_code, gl.GL_FRAGMENT_SHADER)
             self._program_id = gl.glCreateProgram()
             gl.glAttachShader(self._program_id, vs)
             gl.glAttachShader(self._program_id, fs)
@@ -104,35 +89,38 @@ void main() {
             gl.glDeleteShader(fs)
             gl.glUseProgram(self._program_id)
 
+            self._shader_uniforms["i_resolution"] = gl.glGetUniformLocation(self._program_id, "_iResolution")
+            self._shader_uniforms["max_steps"] = gl.glGetUniformLocation(self._program_id, "_maxSteps")
+            self._shader_uniforms["cam_pose"] = gl.glGetUniformLocation(self._program_id, "_camPose")
+            self._shader_uniforms["looking_at"] = gl.glGetUniformLocation(self._program_id, "_lookingAt")
+            self._shader_uniforms["cam_up"] = gl.glGetUniformLocation(self._program_id, "_camUp")
+            self._shader_uniforms["fx"] = gl.glGetUniformLocation(self._program_id, "_fx")
+            self._shader_uniforms["stop_epsilon"] = gl.glGetUniformLocation(self._program_id, "_stopEpsilon")
+            self._shader_uniforms["tmax"] = gl.glGetUniformLocation(self._program_id, "_tmax")
+        else:
+            builder.parse_input_vars()
+            input_vars = builder.get_input_vars()
+
         gl.glBindVertexArray(self._vao)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._vbo)
         gl.glBufferData(gl.GL_ARRAY_BUFFER, SceneHandler.QUAD.nbytes, SceneHandler.QUAD, gl.GL_STATIC_DRAW)
         gl.glEnableVertexAttribArray(0)
         gl.glVertexAttribPointer(0, 2, gl.GL_FLOAT, gl.GL_FALSE, 0, None)
 
-        self._shader_uniforms["i_resolution"] = gl.glGetUniformLocation(self._program_id, "_iResolution")
-        self._shader_uniforms["max_steps"] = gl.glGetUniformLocation(self._program_id, "_maxSteps")
-        self._shader_uniforms["cam_pose"] = gl.glGetUniformLocation(self._program_id, "_camPose")
-        self._shader_uniforms["looking_at"] = gl.glGetUniformLocation(self._program_id, "_lookingAt")
-        self._shader_uniforms["cam_up"] = gl.glGetUniformLocation(self._program_id, "_camUp")
-        self._shader_uniforms["fx"] = gl.glGetUniformLocation(self._program_id, "_fx")
-        self._shader_uniforms["stop_epsilon"] = gl.glGetUniformLocation(self._program_id, "_stopEpsilon")
-        self._shader_uniforms["tmax"] = gl.glGetUniformLocation(self._program_id, "_tmax")
-
-        params = sdf.get_all_param_values()
-        for p in params:
-            sp = params[p]
-            loc = gl.glGetUniformLocation(self._program_id, sp.name)
-            print(f"param {sp.name} loc {loc} type {sp.type} value {sp.value}")
-            match sp.type:
-                case "vec4":
-                    gl.glUniform4f(loc, sp.value[0], sp.value[1], sp.value[2], sp.value[3])
+        for input_var, param in input_vars.items():
+            loc = gl.glGetUniformLocation(self._program_id, input_var)
+            value = param.resolve_value()
+            match param.rettype:
                 case "vec3":
-                    gl.glUniform3f(loc, sp.value[0], sp.value[1], sp.value[2])
+                    gl.glUniform3f(loc, *value)
                 case "vec2":
-                    gl.glUniform2f(loc, sp.value[0], sp.value[1])
+                    gl.glUniform2f(loc, *value)
                 case "float":
-                    gl.glUniform1f(loc, sp.value if not hasattr(sp.value, "item") else sp.value.item())
+                    if hasattr(value, "__iter__"):
+                        value = float(value[0])
+                    else:
+                        value = float(value)
+                    gl.glUniform1f(loc, value)
                 case _:
                     raise NotImplementedError()
 
