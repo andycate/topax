@@ -65,20 +65,20 @@ class Op:
                 case OpTypes.NEG: self._set_rettype(self.lhs.rettype)
                 case _: raise NotImplementedError(f"rettype for opcode {self.opcode} not supported")
 
-    def __add__(self, rhs):
-        return Op(OpTypes.ADD, self, rhs)
+    def __add__(self, rhs): return Op(OpTypes.ADD, self, rhs)
+    def __radd__(self, lhs): return Op(OpTypes.ADD, lhs, self)
     
-    def __radd__(self, lhs):
-        return Op(OpTypes.ADD, lhs, self)
+    def __sub__(self, rhs): return Op(OpTypes.SUB, self, rhs)
+    def __rsub__(self, lhs): return Op(OpTypes.SUB, lhs, self)
+
+    def __pos__(self): return self
+    def __neg__(self): return Op(OpTypes.NEG, self)
     
-    def __sub__(self, rhs):
-        return Op(OpTypes.SUB, self, rhs)
-    
-    def __rsub__(self, lhs):
-        return Op(OpTypes.SUB, lhs, self)
-    
-    def __neg__(self):
-        return Op(OpTypes.NEG, self)
+    def __mul__(self, rhs): return Op(OpTypes.MUL, self, rhs)
+    def __rmul__(self, lhs): return Op(OpTypes.MUL, lhs, self)
+
+    def __truediv__(self, rhs): return Op(OpTypes.DIV, self, rhs)
+    def __rtruediv__(self, lhs): return Op(OpTypes.DIV, lhs, self)
     
     def __repr__(self):
         if self.rhs is not None:
@@ -96,23 +96,21 @@ class Const:
         assert self.sdf is not None
         return self.sdf[self.param]
 
-    def __add__(self, rhs):
-        return Op(OpTypes.ADD, self, rhs)
+    def __add__(self, rhs): return Op(OpTypes.ADD, self, rhs)
+    def __radd__(self, lhs): return Op(OpTypes.ADD, lhs, self)
     
-    def __radd__(self, lhs):
-        return Op(OpTypes.ADD, lhs, self)
+    def __sub__(self, rhs): return Op(OpTypes.SUB, self, rhs)
+    def __rsub__(self, lhs): return Op(OpTypes.SUB, lhs, self)
     
-    def __sub__(self, rhs):
-        return Op(OpTypes.SUB, self, rhs)
-    
-    def __rsub__(self, lhs):
-        return Op(OpTypes.SUB, lhs, self)
-    
-    def __neg__(self):
-        return Op(OpTypes.NEG, self)
+    def __pos__(self): return self
+    def __neg__(self): return Op(OpTypes.NEG, self)
 
-    def __repr__(self):
-        return f"Const({type(self.sdf).__name__};{self.param};{self.rettype})"
-    
-    def __eq__(self, other):
-        return self.sdf == other.sdf and self.param == other.param
+    def __mul__(self, rhs): return Op(OpTypes.MUL, self, rhs)
+    def __rmul__(self, lhs): return Op(OpTypes.MUL, lhs, self)
+
+    def __truediv__(self, rhs): return Op(OpTypes.DIV, self, rhs)
+    def __rtruediv__(self, lhs): return Op(OpTypes.DIV, lhs, self)
+
+    def __repr__(self): return f"Const({type(self.sdf).__name__};{self.param};{self.rettype})"
+
+    def __eq__(self, other): return self.sdf == other.sdf and self.param == other.param

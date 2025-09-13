@@ -87,6 +87,7 @@ class translate(SDF):
 class union(SDF):
     def __init__(self, *sdfs: SDF):
         self.sdfs = sdfs
+        super().__init__()
 
     def sdf_definition(self, p):
         if len(self.sdfs) == 1:
@@ -99,6 +100,7 @@ class union(SDF):
 class intersect(SDF):
     def __init__(self, *sdfs: SDF):
         self.sdfs = sdfs
+        super().__init__()
 
     def sdf_definition(self, p):
         if len(self.sdfs) == 1:
@@ -112,6 +114,24 @@ class subtract(SDF):
     def __init__(self, sdf: SDF, tool: SDF):
         self.sdf = sdf
         self.tool = tool
+        super().__init__()
 
     def sdf_definition(self, p):
         return Op(OpTypes.MAX, self.sdf(p), -self.tool(p))
+    
+class subtract(SDF):
+    def __init__(self, sdf: SDF, tool: SDF):
+        self.sdf = sdf
+        self.tool = tool
+        super().__init__()
+
+    def sdf_definition(self, p):
+        return Op(OpTypes.MAX, self.sdf(p), -self.tool(p))
+    
+class scale(SDF):
+    def __init__(self, sdf: SDF, amount: float):
+        self.sdf = sdf
+        super().__init__(amount=amount)
+
+    def sdf_definition(self, p):
+        return self.sdf(p / self.amount) * self.amount
