@@ -66,10 +66,10 @@ void main() {
         # gl.glDeleteVertexArrays(self._vao)
     
     def update_sdf(self, sdf):
-        print("got new sdf")
         sdf_repr = repr(sdf(Const(None, 'p', 'vec3')))
         builder = Builder(sdf)
         if sdf_repr != self._sdf_repr:
+            print("recompiling shader!")
             self._sdf_repr = sdf_repr
             shader_code = builder.build()
             input_vars = builder.get_input_vars()

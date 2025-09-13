@@ -20,6 +20,7 @@ class OpTypes(Enum):
     XY = 15
     XZ = 16
     YZ = 17
+    NEG = 18
 
 @dataclass(frozen=True)
 class Op:
@@ -61,6 +62,7 @@ class Op:
                 case OpTypes.XY: self._set_rettype('vec2')
                 case OpTypes.XZ: self._set_rettype('vec2')
                 case OpTypes.YZ: self._set_rettype('vec2')
+                case OpTypes.NEG: self._set_rettype(self.lhs.rettype)
                 case _: raise NotImplementedError(f"rettype for opcode {self.opcode} not supported")
 
     def __add__(self, rhs):
@@ -74,6 +76,9 @@ class Op:
     
     def __rsub__(self, lhs):
         return Op(OpTypes.SUB, lhs, self)
+    
+    def __neg__(self):
+        return Op(OpTypes.NEG, self)
     
     def __repr__(self):
         if self.rhs is not None:
@@ -102,6 +107,9 @@ class Const:
     
     def __rsub__(self, lhs):
         return Op(OpTypes.SUB, lhs, self)
+    
+    def __neg__(self):
+        return Op(OpTypes.NEG, self)
 
     def __repr__(self):
         return f"Const({type(self.sdf).__name__};{self.param};{self.rettype})"

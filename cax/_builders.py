@@ -96,6 +96,7 @@ class Builder:
             case OpTypes.NORM: self.lines.append(f"{out_varname} = normal({lhs_varname});")
             case OpTypes.MIN: self.lines.append(f"{out_varname} = min({lhs_varname}, {rhs_varname});")
             case OpTypes.MAX: self.lines.append(f"{out_varname} = max({lhs_varname}, {rhs_varname});")
+            case OpTypes.NEG: self.lines.append(f"{out_varname} = -{lhs_varname};")
             case _: raise NotImplementedError(f"parsing for opcode {optree.opcode} not supported")
 
         if not lhs_is_external_param: self._release_var(lhs_varname)

@@ -52,11 +52,29 @@ class empty(SDF):
         return Const(None, 'uintBitsToFloat(0x7F800000u)', 'float')
 
 class sphere(SDF):
-    def __init__(self, radius: float, center: ArrayLike):
-        super().__init__(radius=radius, center=center)
+    def __init__(
+        self,
+        radius: float, 
+        center: ArrayLike | None=None, 
+        x: float | None=None,
+        y: float | None=None,
+        z: float | None=None
+    ):
+        if center is not None:
+            super().__init__(radius=radius, center=center)
+        else:
+            center = [x, y, z]
+            if all(e is None for e in center):
+                super().__init__(radius=radius)
+            else:
+                center = [0.0 if e is None else e for e in center]
+                super().__init__(radius=radius, center=center)
 
     def sdf_definition(self, p):
-        return Op(OpTypes.LEN, p - self.center) - self.radius
+        if hasattr(self, 'center'):
+            return Op(OpTypes.LEN, p - self.center) - self.radius
+        else:
+            return Op(OpTypes.LEN, p) - self.radius
     
 class translate(SDF):
     def __init__(self, sdf: SDF, offset: ArrayLike):
@@ -77,3 +95,23 @@ class union(SDF):
         for i in range(2, len(self.sdfs)):
             oper = Op(OpTypes.MIN, oper, self.sdfs[i](p))
         return oper
+    
+class intersect(SDF):
+    def __init__(self, *sdfs: SDF):
+        self.sdfs = sdfs
+
+    def sdf_definition(self, p):
+        if len(self.sdfs) == 1:
+            return self.sdfs[0](p)
+        oper = Op(OpTypes.MAX, self.sdfs[0](p), self.sdfs[1](p))
+        for i in range(2, len(self.sdfs)):
+            oper = Op(OpTypes.MAX, oper, self.sdfs[i](p))
+        return oper
+    
+class subtract(SDF):
+    def __init__(self, sdf: SDF, tool: SDF):
+        self.sdf = sdf
+        self.tool = tool
+
+    def sdf_definition(self, p):
+        return Op(OpTypes.MAX, self.sdf(p), -self.tool(p))
