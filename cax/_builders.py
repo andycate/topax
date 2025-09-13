@@ -1,6 +1,7 @@
 import jinja2
 
-from cax.ops import Const, Op, OpTypes
+from cax._utils import make_shader_const
+from cax.ops import Const, Op, OpType
 
 class Builder:
     template = jinja2.Environment(loader=jinja2.PackageLoader('cax')).get_template('shader.glsl.j2')
@@ -64,8 +65,9 @@ class Builder:
         lhs_is_external_param = False
         if isinstance(optree.lhs, Const):
             if optree.lhs.sdf is None:
-                lhs_varname = optree.lhs.param
                 lhs_is_external_param = True
+                if isinstance(optree.lhs.param, str): lhs_varname = optree.lhs.param
+                else: lhs_varname = make_shader_const(optree.lhs.param, optree.lhs.rettype)
             else:
                 lhs_varname = self.input_vars[optree.lhs]
         else:
@@ -77,8 +79,9 @@ class Builder:
         if optree.rhs is not None:
             if isinstance(optree.rhs, Const):
                 if optree.rhs.sdf is None:
-                    rhs_varname = optree.rhs.param
                     rhs_is_external_param = True
+                    if isinstance(optree.rhs.param, str): rhs_varname = optree.rhs.param
+                    else: rhs_varname = make_shader_const(optree.rhs.param, optree.rhs.rettype)
                 else:
                     rhs_varname = self.input_vars[optree.rhs]
             else:
@@ -88,15 +91,22 @@ class Builder:
             rhs_varname = None
 
         match optree.opcode:
-            case OpTypes.ADD: self.lines.append(f"{out_varname} = {lhs_varname} + {rhs_varname};")
-            case OpTypes.SUB: self.lines.append(f"{out_varname} = {lhs_varname} - {rhs_varname};")
-            case OpTypes.MUL: self.lines.append(f"{out_varname} = {lhs_varname} * {rhs_varname};")
-            case OpTypes.DIV: self.lines.append(f"{out_varname} = {lhs_varname} / {rhs_varname};")
-            case OpTypes.LEN: self.lines.append(f"{out_varname} = length({lhs_varname});")
-            case OpTypes.NORM: self.lines.append(f"{out_varname} = normal({lhs_varname});")
-            case OpTypes.MIN: self.lines.append(f"{out_varname} = min({lhs_varname}, {rhs_varname});")
-            case OpTypes.MAX: self.lines.append(f"{out_varname} = max({lhs_varname}, {rhs_varname});")
-            case OpTypes.NEG: self.lines.append(f"{out_varname} = -{lhs_varname};")
+            case OpType.ADD: self.lines.append(f"{out_varname} = {lhs_varname} + {rhs_varname};")
+            case OpType.SUB: self.lines.append(f"{out_varname} = {lhs_varname} - {rhs_varname};")
+            case OpType.MUL: self.lines.append(f"{out_varname} = {lhs_varname} * {rhs_varname};")
+            case OpType.DIV: self.lines.append(f"{out_varname} = {lhs_varname} / {rhs_varname};")
+            case OpType.LEN: self.lines.append(f"{out_varname} = length({lhs_varname});")
+            case OpType.NORM: self.lines.append(f"{out_varname} = normal({lhs_varname});")
+            case OpType.MIN: self.lines.append(f"{out_varname} = min({lhs_varname}, {rhs_varname});")
+            case OpType.MAX: self.lines.append(f"{out_varname} = max({lhs_varname}, {rhs_varname});")
+            case OpType.NEG: self.lines.append(f"{out_varname} = -{lhs_varname};")
+            case OpType.ABS: self.lines.append(f"{out_varname} = abs({lhs_varname});")
+            case OpType.X: self.lines.append(f"{out_varname} = {lhs_varname}.x;")
+            case OpType.Y: self.lines.append(f"{out_varname} = {lhs_varname}.y;")
+            case OpType.Z: self.lines.append(f"{out_varname} = {lhs_varname}.z;")
+            case OpType.XY: self.lines.append(f"{out_varname} = {lhs_varname}.xy;")
+            case OpType.XZ: self.lines.append(f"{out_varname} = {lhs_varname}.xz;")
+            case OpType.YZ: self.lines.append(f"{out_varname} = {lhs_varname}.yz;")
             case _: raise NotImplementedError(f"parsing for opcode {optree.opcode} not supported")
 
         if not lhs_is_external_param: self._release_var(lhs_varname)

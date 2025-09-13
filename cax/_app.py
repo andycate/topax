@@ -14,7 +14,7 @@ from IPython import embed
 
 from cax._utils import compile_shader, rotation_matrix_about_vector, normalize
 from cax._builders import Builder
-from cax.sdfs import empty
+from cax.sdfs import empty, box
 from cax.ops import Const
 
 class SceneHandler:
@@ -57,7 +57,7 @@ void main() {
             tmax=None
         )
 
-        self.update_sdf(empty())
+        self.update_sdf(box([0.3, 0.4, 0.5]))
 
     def __del__(self):
         if self._program_id is not None:

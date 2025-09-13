@@ -39,3 +39,34 @@ def compile_shader(src, shader_type):
     if not gl.glGetShaderiv(shader, gl.GL_COMPILE_STATUS):
         raise RuntimeError(gl.glGetShaderInfoLog(shader).decode())
     return shader
+
+def resolve_type(item):
+    if isinstance(item, float):
+        return 'float'
+    elif hasattr(item, '__iter__'):
+        match len(item):
+            case 3:
+                return 'vec3'
+            case 2:
+                return 'vec2'
+            case 1:
+                return 'float'
+            case _:
+                raise NotImplementedError(f"cannot resolve type of value {item}")
+    else:
+        raise NotImplementedError(f"cannot resolve type of value {item}")
+    
+def make_shader_const(item, type):
+    match type:
+        case 'vec3':
+            assert len(item) == 3, f"length of vec3 must be 3, but got {len(item)} for item {item}"
+            return f"vec3({",".join(item)})"
+        case 'vec2':
+            assert len(item) == 2
+            return f"vec2({",".join(item)})"
+        case 'float':
+            if hasattr(item, '__iter__'):
+                assert len(item) == 1
+                item = item[0]
+            return f"{item}"
+        case _: raise NotImplementedError(f"cannot make shader constant from type {type}")

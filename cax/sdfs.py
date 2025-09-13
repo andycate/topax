@@ -8,7 +8,8 @@ from numpy.typing import ArrayLike
 import jax.numpy as jnp
 import jinja2
 
-from cax.ops import Op, OpTypes, Const
+from cax._utils import resolve_type
+from cax.ops import Op, OpType, Const
 
 class SDF(abc.ABC):
     def __init__(self, *args, **kwargs):
@@ -17,21 +18,7 @@ class SDF(abc.ABC):
         for k in kwargs:
             item = kwargs[k]
             self._values[k] = item
-            if isinstance(item, float):
-                type = 'float'
-            elif isinstance(item, list) or isinstance(item, tuple) or isinstance(item, np.ndarray) or isinstance(item, jnp.ndarray):
-                match len(item):
-                    case 3:
-                        type = 'vec3'
-                    case 2:
-                        type = 'vec2'
-                    case 1:
-                        type = 'float'
-                    case _:
-                        raise ValueError("only float, vec3 and vec2 are supported currently")
-            else:
-                raise ValueError("only float, vec3 and vec2 are supported currently")
-            v = Const(self, k, type)
+            v = Const(self, k, resolve_type(item))
             setattr(self, k, v)
 
     @abc.abstractmethod
@@ -72,9 +59,20 @@ class sphere(SDF):
 
     def sdf_definition(self, p):
         if hasattr(self, 'center'):
-            return Op(OpTypes.LEN, p - self.center) - self.radius
+            return Op(OpType.LEN, p - self.center) - self.radius
         else:
-            return Op(OpTypes.LEN, p) - self.radius
+            return Op(OpType.LEN, p) - self.radius
+        
+class box(SDF):
+    def __init__(
+        self,
+        size: ArrayLike,
+    ):
+        super().__init__(size=size)
+
+    def sdf_definition(self, p):
+        q = Op(OpType.ABS, p) - self.size
+        return Op(OpType.LEN, Op(OpType.MAX, q, 0.0)) + Op(OpType.MIN, Op(OpType.MAX, q.x, Op(OpType.MAX, q.y, q.z)), 0.0)
     
 class translate(SDF):
     def __init__(self, sdf: SDF, offset: ArrayLike):
@@ -92,9 +90,9 @@ class union(SDF):
     def sdf_definition(self, p):
         if len(self.sdfs) == 1:
             return self.sdfs[0](p)
-        oper = Op(OpTypes.MIN, self.sdfs[0](p), self.sdfs[1](p))
+        oper = Op(OpType.MIN, self.sdfs[0](p), self.sdfs[1](p))
         for i in range(2, len(self.sdfs)):
-            oper = Op(OpTypes.MIN, oper, self.sdfs[i](p))
+            oper = Op(OpType.MIN, oper, self.sdfs[i](p))
         return oper
     
 class intersect(SDF):
@@ -105,9 +103,9 @@ class intersect(SDF):
     def sdf_definition(self, p):
         if len(self.sdfs) == 1:
             return self.sdfs[0](p)
-        oper = Op(OpTypes.MAX, self.sdfs[0](p), self.sdfs[1](p))
+        oper = Op(OpType.MAX, self.sdfs[0](p), self.sdfs[1](p))
         for i in range(2, len(self.sdfs)):
-            oper = Op(OpTypes.MAX, oper, self.sdfs[i](p))
+            oper = Op(OpType.MAX, oper, self.sdfs[i](p))
         return oper
     
 class subtract(SDF):
@@ -117,16 +115,7 @@ class subtract(SDF):
         super().__init__()
 
     def sdf_definition(self, p):
-        return Op(OpTypes.MAX, self.sdf(p), -self.tool(p))
-    
-class subtract(SDF):
-    def __init__(self, sdf: SDF, tool: SDF):
-        self.sdf = sdf
-        self.tool = tool
-        super().__init__()
-
-    def sdf_definition(self, p):
-        return Op(OpTypes.MAX, self.sdf(p), -self.tool(p))
+        return Op(OpType.MAX, self.sdf(p), -self.tool(p))
     
 class scale(SDF):
     def __init__(self, sdf: SDF, amount: float):
