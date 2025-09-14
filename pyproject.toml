@@ -26,7 +26,7 @@ Source = "https://github.com/andycate/topax"
 topax = "topax._app:main"
 
 [build-system]
-requires = ["setuptools >= 77.0.3", "versioneer[toml]==0.29"]
+requires = ["setuptools >= 77.0.3", "versioneer[toml]"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -34,9 +34,6 @@ where = ["."]
 
 [tool.setuptools.package-data]
 topax = ["templates/**"]
-
-[tool.setuptools.dynamic]
-version = {attr = "topax.version"}
 
 [tool.versioneer]
 VCS = "git"
