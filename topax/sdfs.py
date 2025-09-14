@@ -1,18 +1,30 @@
 import abc
 
+import numpy as np
 from numpy.typing import ArrayLike
 
 from topax._utils import resolve_type
 from topax.ops import Op, OpType, Const
 
+
 class SDF(abc.ABC):
     def __init__(self, *args, **kwargs):
         assert len(args) == 0
+        assert not hasattr(self, '_values')
         self._values = {}
         for k in kwargs:
             item = kwargs[k]
             self._values[k] = item
             v = Const(self, k, resolve_type(item))
+            setattr(self, k, v)
+
+    def add_arrays(self, *args, **kwargs):
+        assert len(args) == 0
+        for k in kwargs:
+            item = kwargs[k]
+            # TODO: add some kind of sanity check here
+            self._values[k] = item
+            v = Const(self, k, 'float[]')
             setattr(self, k, v)
 
     @abc.abstractmethod
@@ -118,3 +130,4 @@ class scale(SDF):
 
     def sdf_definition(self, p):
         return self.sdf(p / self.amount) * self.amount
+

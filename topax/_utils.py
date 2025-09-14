@@ -69,4 +69,9 @@ def make_shader_const(item, type):
                 assert len(item) == 1
                 item = item[0]
             return f"{item}"
+        case 'int':
+            if hasattr(item, '__iter__'):
+                assert len(item) == 1
+                item = item[0]
+            return f"{item}"
         case _: raise NotImplementedError(f"cannot make shader constant from type {type}")

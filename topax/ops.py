@@ -6,28 +6,35 @@ from topax._utils import resolve_type
 
 # TODO: make this enum numbering better
 class OpType(Enum):
-    ADD = 1
-    SUB = 2
-    MUL = 3
-    DIV = 4
-    LEN = 5
-    NORM = 6
-    SQRT = 7
-    SIN = 8
-    COS = 9
-    MIN = 10
-    MAX = 11
-    X = 12
-    Y = 13
-    Z = 14
-    XY = 15
-    XZ = 16
-    YZ = 17
-    NEG = 18
-    ABS = 19
-    DOT = 20
-    YZX = 21
-    ZXY = 22
+    NEG = 1
+    ADD = 2
+    SUB = 3
+    MUL = 4
+    DIV = 5
+    LEN = 6
+    NORM = 7
+    SQRT = 8
+    DOT = 9
+    SIN = 10
+    COS = 11
+    TAN = 12
+    ASIN = 13
+    ACOS = 14
+    ATAN = 15
+    MIN = 16
+    MAX = 17
+    ABS = 18
+    INDEX = 19
+    X = 20
+    Y = 21
+    Z = 22
+    XY = 23
+    XZ = 24
+    YZ = 25
+    YZX = 26
+    ZXY = 27
+    MAKE_VEC3 = 28
+    MAKE_VEC2 = 29
 
 @dataclass(frozen=True)
 class Op:
@@ -54,9 +61,10 @@ class Op:
         if not isinstance(self.lhs, Op) and not isinstance(self.lhs, Const):
             object.__setattr__(self, 'lhs', Const(None, self.lhs))
         if self.rhs is not None and not isinstance(self.rhs, Op) and not isinstance(self.rhs, Const):
-            object.__setattr__(self, 'rhs', Const(None, self.rhs))
+            object.__setattr__(self, 'rhs', Const(None, self.rhs, 'int' if self.opcode == OpType.INDEX else None))
         if self.rettype == "":
             match self.opcode:
+                case OpType.NEG: self._set_rettype(self.lhs.rettype)
                 case OpType.ADD: self._set_rettype()
                 case OpType.SUB: self._set_rettype()
                 case OpType.MUL: self._set_rettype()
@@ -64,10 +72,17 @@ class Op:
                 case OpType.LEN: self._set_rettype('float')
                 case OpType.NORM: self._set_rettype()
                 case OpType.SQRT: self._set_rettype()
+                case OpType.DOT: self._set_rettype('float')
                 case OpType.SIN: self._set_rettype()
                 case OpType.COS: self._set_rettype()
+                case OpType.TAN: self._set_rettype()
+                case OpType.ASIN: self._set_rettype()
+                case OpType.ACOS: self._set_rettype()
+                case OpType.ATAN: self._set_rettype()
                 case OpType.MIN: self._set_rettype()
                 case OpType.MAX: self._set_rettype()
+                case OpType.ABS: self._set_rettype(self.lhs.rettype)
+                case OpType.INDEX: self._set_rettype(self.lhs.rettype.removesuffix('[]'))
                 case OpType.X: self._set_rettype('float')
                 case OpType.Y: self._set_rettype('float')
                 case OpType.Z: self._set_rettype('float')
@@ -76,9 +91,8 @@ class Op:
                 case OpType.YZ: self._set_rettype('vec2')
                 case OpType.YZX: self._set_rettype('vec3')
                 case OpType.ZXY: self._set_rettype('vec3')
-                case OpType.DOT: self._set_rettype('float')
-                case OpType.NEG: self._set_rettype(self.lhs.rettype)
-                case OpType.ABS: self._set_rettype(self.lhs.rettype)
+                case OpType.MAKE_VEC3: self._set_rettype('vec3')
+                case OpType.MAKE_VEC2: self._set_rettype('vec2')
                 case _: raise NotImplementedError(f"rettype for opcode {self.opcode} not supported")
 
     @property
@@ -170,3 +184,9 @@ class Const:
     def __repr__(self): return f"Const({type(self.sdf).__name__};{self.param};{self.rettype})"
 
     def __eq__(self, other): return self.sdf == other.sdf and self.param == other.param
+
+    def __getitem__(self, key):
+        assert self.rettype.endswith('[]')
+        assert isinstance(key, int), "key must be strictly of int type"
+        assert key >= 0 and key < len(self.resolve_value())
+        return Op(OpType.INDEX, self, key)

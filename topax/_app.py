@@ -16,6 +16,7 @@ from topax._builders import Builder
 from topax.sdfs import empty
 from topax.ops import Const
 
+
 class SceneHandler:
     QUAD = np.array([
         -1.0, -1.0,
@@ -109,19 +110,24 @@ void main() {
         for input_var, param in input_vars.items():
             loc = gl.glGetUniformLocation(self._program_id, input_var)
             value = param.resolve_value()
-            match param.rettype:
-                case "vec3":
-                    gl.glUniform3f(loc, *value)
-                case "vec2":
-                    gl.glUniform2f(loc, *value)
-                case "float":
-                    if hasattr(value, "__iter__"):
-                        value = float(value[0])
-                    else:
-                        value = float(value)
-                    gl.glUniform1f(loc, value)
-                case _:
-                    raise NotImplementedError()
+            if param.rettype.endswith('[]'):
+                assert param.rettype == 'float[]' # for now only support float array
+                l = len(value)
+                gl.glUniform1fv(loc, l, np.array(value, dtype=np.float32))
+            else:
+                match param.rettype:
+                    case "vec3":
+                        gl.glUniform3f(loc, *value)
+                    case "vec2":
+                        gl.glUniform2f(loc, *value)
+                    case "float":
+                        if hasattr(value, "__iter__"):
+                            value = float(value[0])
+                        else:
+                            value = float(value)
+                        gl.glUniform1f(loc, value)
+                    case _:
+                        raise NotImplementedError()
 
     def rotate_2d(self, dx, dy):
         cam_right = normalize(np.linalg.cross(-self._camera_position, self._camera_up))

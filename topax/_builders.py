@@ -91,19 +91,24 @@ class Builder:
             rhs_varname = None
 
         match optree.opcode:
+            case OpType.NEG: self.lines.append(f"{out_varname} = -{lhs_varname};")
             case OpType.ADD: self.lines.append(f"{out_varname} = {lhs_varname} + {rhs_varname};")
             case OpType.SUB: self.lines.append(f"{out_varname} = {lhs_varname} - {rhs_varname};")
             case OpType.MUL: self.lines.append(f"{out_varname} = {lhs_varname} * {rhs_varname};")
             case OpType.DIV: self.lines.append(f"{out_varname} = {lhs_varname} / {rhs_varname};")
             case OpType.LEN: self.lines.append(f"{out_varname} = length({lhs_varname});")
             case OpType.NORM: self.lines.append(f"{out_varname} = normal({lhs_varname});")
-            case OpType.MIN: self.lines.append(f"{out_varname} = min({lhs_varname}, {rhs_varname});")
-            case OpType.MAX: self.lines.append(f"{out_varname} = max({lhs_varname}, {rhs_varname});")
-            case OpType.NEG: self.lines.append(f"{out_varname} = -{lhs_varname};")
-            case OpType.ABS: self.lines.append(f"{out_varname} = abs({lhs_varname});")
             case OpType.DOT: self.lines.append(f"{out_varname} = dot({lhs_varname}, {rhs_varname});")
             case OpType.SIN: self.lines.append(f"{out_varname} = sin({lhs_varname});")
             case OpType.COS: self.lines.append(f"{out_varname} = cos({lhs_varname});")
+            case OpType.TAN: self.lines.append(f"{out_varname} = tan({lhs_varname});")
+            case OpType.ASIN: self.lines.append(f"{out_varname} = asin({lhs_varname});" if rhs_varname is not None else f"{out_varname} = asin({lhs_varname}, {rhs_varname});")
+            case OpType.ACOS: self.lines.append(f"{out_varname} = acos({lhs_varname});" if rhs_varname is not None else f"{out_varname} = acos({lhs_varname}, {rhs_varname});")
+            case OpType.ATAN: self.lines.append(f"{out_varname} = atan({lhs_varname});" if rhs_varname is not None else f"{out_varname} = atan({lhs_varname}, {rhs_varname});")
+            case OpType.MIN: self.lines.append(f"{out_varname} = min({lhs_varname}, {rhs_varname});")
+            case OpType.MAX: self.lines.append(f"{out_varname} = max({lhs_varname}, {rhs_varname});")
+            case OpType.ABS: self.lines.append(f"{out_varname} = abs({lhs_varname});")
+            case OpType.INDEX: self.lines.append(f"{out_varname} = {lhs_varname}[{rhs_varname}];")
             case OpType.X: self.lines.append(f"{out_varname} = {lhs_varname}.x;")
             case OpType.Y: self.lines.append(f"{out_varname} = {lhs_varname}.y;")
             case OpType.Z: self.lines.append(f"{out_varname} = {lhs_varname}.z;")
@@ -112,6 +117,12 @@ class Builder:
             case OpType.YZ: self.lines.append(f"{out_varname} = {lhs_varname}.yz;")
             case OpType.YZX: self.lines.append(f"{out_varname} = {lhs_varname}.yzx;")
             case OpType.ZXY: self.lines.append(f"{out_varname} = {lhs_varname}.zxy;")
+            case OpType.MAKE_VEC3:
+                assert rhs_varname is not None
+                self.lines.append(f"{out_varname} = vec3({lhs_varname}, {rhs_varname});")
+            case OpType.MAKE_VEC2:
+                assert rhs_varname is not None
+                self.lines.append(f"{out_varname} = vec2({lhs_varname}, {rhs_varname});")
             case _: raise NotImplementedError(f"parsing for opcode {optree.opcode} not supported")
 
         if not lhs_is_external_param: self._release_var(lhs_varname)
@@ -122,6 +133,6 @@ class Builder:
         self._parse_ops(self.optree, 'd')
         
         return Builder.template.render(
-            global_inputs=[dict(name=v, type=self.input_vars_types[v]) for v in self.input_vars_types if v != 'p'],
+            global_inputs=[dict(name=k if not list(self.input_vars.keys())[i].rettype.endswith('[]') else k + f"[{len(list(self.input_vars.keys())[i].resolve_value())}]", type=v.removesuffix('[]')) for i, (k, v) in enumerate(self.input_vars_types.items()) if v != 'p'],
             lines=self.lines
         )
