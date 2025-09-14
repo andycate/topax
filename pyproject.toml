@@ -1,6 +1,12 @@
 [project]
 name = "topax"
 version = "0.0.1"
+authors = [
+    { name="Andy" },
+]
+description = "Topax - A Full Stack Implicit Geometry CAD Package for Python"
+readme = "README.md"
+requires-python = ">=3.11"
 dependencies = [
   "numpy",
   "PyOpenGL",
@@ -10,13 +16,32 @@ dependencies = [
   "ipython",
   "jinja2"
 ]
+license = "AGPL-3.0"
+license-files = ["LICENSE"]
+
+[project.urls]
+Source = "https://github.com/andycate/topax"
 
 [project.scripts]
 topax = "topax._app:main"
 
 [build-system]
-requires = ["setuptools >= 77.0.3"]
+requires = ["setuptools >= 77.0.3", "versioneer[toml]==0.29"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.setuptools.package-data]
+topax = ["templates/**"]
+
+[tool.setuptools.dynamic]
+version = {attr = "topax.version"}
+
+[tool.versioneer]
+VCS = "git"
+style = "pep440"
+versionfile_source = "topax/_version.py"
+versionfile_build = "topax/_version.py"
+tag_prefix = "v"
+parentdir_prefix = "topax-"
