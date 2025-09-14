@@ -11,16 +11,43 @@ uniform float _fx;
 uniform float _stopEpsilon;
 uniform float _tmax;
 
-{% for i in global_inputs -%}
-uniform {{ i.type }} {{ i.name }};
-{% endfor %}
+// float map(in vec3 p)
+// {
+//     vec3 scaled = p * 1.0;
+//     float gyroid = 0.33 * abs(dot(sin(scaled.xyz), cos(scaled.yzx)));
+//     gyroid = gyroid - 0.05;
+//     float sphere = length(p) - 5.0;
+//     return max(sphere, gyroid);
+// }
+
+const float sdfin_var0 = 1.0;
+const float sdfin_var1 = 0.05;
+const float sdfin_var2 = 5.0;
 
 float map(in vec3 p)
 {
     float d;
-    {% for line in lines -%}
-    {{line}}
-    {% endfor %}
+    float local_var0;
+    float local_var1;
+    float local_var2;
+    float local_var3;
+    vec3 local_var4;
+    vec3 local_var5;
+    local_var5 = p * sdfin_var0;
+    local_var4 = sin(local_var5);
+    vec3 local_var6;
+    vec3 local_var7;
+    local_var7 = p * sdfin_var0;
+    local_var6 = local_var7.yzx;
+    local_var5 = cos(local_var6);
+    local_var3 = dot(local_var4, local_var5);
+    local_var2 = abs(local_var3);
+    local_var1 = local_var2 * 0.33;
+    local_var0 = local_var1 - sdfin_var1;
+    local_var2 = length(p);
+    local_var1 = local_var2 - sdfin_var2;
+    d = max(local_var0, local_var1);
+    
     return d;
 }
 
@@ -52,7 +79,6 @@ vec4 mainImage( in vec2 fragCoord )
     vec3 tot = vec3(0.0);
 
     // raymarch
-    const float tmax = 3.0;
     float t = 0.0;
     float h = 0.0;
     vec3 pos;
@@ -63,14 +89,12 @@ vec4 mainImage( in vec2 fragCoord )
         if( h<_stopEpsilon || t>_tmax ) break;
         t += h;
     }
-
     vec4 color = vec4(0.0);
     if( h<_stopEpsilon ) {
         color.w = 1.0;
         vec3 nor = calcNormal(pos);
         float dif = clamp( dot(nor,vec3(0.57703)), 0.0, 1.0 ) * 0.2;
         float amb = 1.4 + 0.3*dot(nor,vec3(0.0,1.0,0.0));
-        // color.xyz = vec3(0.2,0.3,0.4)*amb + vec3(0.8,0.7,0.5)*dif;
         color.xyz = vec3(0.2,0.3,0.4)*amb + vec3(0.8,0.7,0.5)*dif;
     }
 

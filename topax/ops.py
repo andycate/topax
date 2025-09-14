@@ -25,6 +25,9 @@ class OpType(Enum):
     YZ = 17
     NEG = 18
     ABS = 19
+    DOT = 20
+    YZX = 21
+    ZXY = 22
 
 @dataclass(frozen=True)
 class Op:
@@ -71,6 +74,9 @@ class Op:
                 case OpType.XY: self._set_rettype('vec2')
                 case OpType.XZ: self._set_rettype('vec2')
                 case OpType.YZ: self._set_rettype('vec2')
+                case OpType.YZX: self._set_rettype('vec3')
+                case OpType.ZXY: self._set_rettype('vec3')
+                case OpType.DOT: self._set_rettype('float')
                 case OpType.NEG: self._set_rettype(self.lhs.rettype)
                 case OpType.ABS: self._set_rettype(self.lhs.rettype)
                 case _: raise NotImplementedError(f"rettype for opcode {self.opcode} not supported")
@@ -87,6 +93,10 @@ class Op:
     def xz(self): return Op(OpType.XZ, self)
     @property
     def yz(self): return Op(OpType.YZ, self)
+    @property
+    def yzx(self): return Op(OpType.YZX, self)
+    @property
+    def zxy(self): return Op(OpType.ZXY, self)
 
     def __add__(self, rhs): return Op(OpType.ADD, self, rhs)
     def __radd__(self, lhs): return Op(OpType.ADD, lhs, self)
@@ -137,6 +147,10 @@ class Const:
     def xz(self): return Op(OpType.XZ, self)
     @property
     def yz(self): return Op(OpType.YZ, self)
+    @property
+    def yzx(self): return Op(OpType.YZX, self)
+    @property
+    def zxy(self): return Op(OpType.ZXY, self)
 
     def __add__(self, rhs): return Op(OpType.ADD, self, rhs)
     def __radd__(self, lhs): return Op(OpType.ADD, lhs, self)

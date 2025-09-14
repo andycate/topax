@@ -149,12 +149,12 @@ void main() {
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
 
         gl.glUniform2f(self._shader_uniforms["i_resolution"], self._fb_width, self._fb_height)
-        gl.glUniform1ui(self._shader_uniforms["max_steps"], 256)
+        gl.glUniform1ui(self._shader_uniforms["max_steps"], 1024)
         gl.glUniform3f(self._shader_uniforms["cam_pose"], *self._camera_position)
         gl.glUniform3f(self._shader_uniforms["looking_at"], *self._looking_at)
         gl.glUniform3f(self._shader_uniforms["cam_up"], *self._camera_up)
         gl.glUniform1f(self._shader_uniforms["fx"], self._fx)
-        gl.glUniform1f(self._shader_uniforms["stop_epsilon"], 0.0001)
+        gl.glUniform1f(self._shader_uniforms["stop_epsilon"], 0.00001)
         gl.glUniform1f(self._shader_uniforms["tmax"], 1000.0)
 
         gl.glBindVertexArray(self._vao)

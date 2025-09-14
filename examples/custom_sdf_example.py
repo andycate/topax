@@ -1,0 +1,18 @@
+from topax.sdfs import SDF, sphere, intersect
+from topax.ops import Op, OpType
+from topax._builders import Builder
+
+class custom_manifold(SDF):
+    def __init__(self, scale: float, fill: float):
+        super().__init__(scale=scale, fill=fill)
+
+    def sdf_definition(self, p):
+        scaled_p = p * self.scale
+        gyroid = Op(OpType.ABS, Op(OpType.DOT, Op(OpType.SIN, scaled_p), Op(OpType.COS, scaled_p.yzx))) * 0.33 - self.fill
+        return gyroid
+
+def make_part():
+    return intersect(
+        custom_manifold(1.0, 0.05),
+        sphere(5.0)
+    )
