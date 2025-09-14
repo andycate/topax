@@ -16,7 +16,7 @@ class SDF(abc.ABC):
             setattr(self, k, v)
 
     @abc.abstractmethod
-    def sdf_definition(self, p) -> Op | Const:
+    def sdf_definition(self, p: Op | Const) -> Op | Const:
         raise NotImplementedError()
 
     def __call__(self, p):
