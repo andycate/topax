@@ -51,10 +51,23 @@ class frzsurface(SDF):
             else:
                 z += 2.0 * self.z_lmn[int(Z_mode_arr_idx[i])] * Op(OpType.SIN, (-float(mode)) * zeta)
 
-        return Op(OpType.LEN, Op(OpType.MAKE_VEC2, r - Op(OpType.LEN, p.xy), z - p.z)) - 0.25
+        # return Op(OpType.LEN, Op(OpType.MAKE_VEC2, r - Op(OpType.LEN, p.xy), z - p.z)) - 0.05
         # next we will find p_prime, which is (R,Z), where R is relative
         # to the closest point on the central axis
-        pass
+        theta = Op(OpType.ATAN, z, r - Op(OpType.LEN, p.xy))
+
+        r_surf = 0.0
+        for i, (_, m, n) in enumerate(self.surface.R_basis.modes):
+            if m == 0 or n == 0: continue
+            r_surf += (np.pi**2) * self.r_lmn[i] * (Op(OpType.COS, float(n) * zeta) if n > 0 else Op(OpType.SIN, float(-n) * zeta)) * (Op(OpType.COS, float(m) * theta) if m > 0 else Op(OpType.SIN, float(-m) * theta))
+
+        z_surf = 0.0
+        for i, (_, m, n) in enumerate(self.surface.Z_basis.modes):
+            if m == 0 or n == 0: continue
+            z_surf += (np.pi**2) * self.z_lmn[i] * (Op(OpType.COS, float(n) * zeta) if n > 0 else Op(OpType.SIN, float(-n) * zeta)) * (Op(OpType.COS, float(m) * theta) if m > 0 else Op(OpType.SIN, float(-m) * theta))
+
+        return Op(OpType.LEN, Op(OpType.MAKE_VEC2, z - p.z, r - Op(OpType.LEN, p.xy))) - Op(OpType.LEN, Op(OpType.MAKE_VEC2, r_surf, z_surf))
+        
         # finally we will do something clever to compute the point on the
         # surface that has the same normal as the point p_prime, and then
         # subtract the vectors and take the length to get final distance

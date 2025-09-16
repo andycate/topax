@@ -141,6 +141,9 @@ void main() {
         factor = (1 + delta * 0.008)
         self._fx *= factor
         self._camera_position *= factor
+
+    def resize(self):
+        self._fb_width, self._fb_height = glfw.get_framebuffer_size(self._window)
         
 
     def draw_scene(self):
@@ -254,8 +257,13 @@ def main():
         scene.zoom(yoffset)
         scene.draw_scene()
 
+    def window_resize_callback(win, width, height):
+        scene.resize()
+        scene.draw_scene()
+
     glfw.set_mouse_button_callback(window, mouse_button_callback)
     glfw.set_scroll_callback(window, scroll_callback)
+    glfw.set_window_size_callback(window, window_resize_callback)
 
     # Setup command message queue and project interface
     sdf_queue = queue.Queue()

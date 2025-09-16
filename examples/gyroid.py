@@ -1,4 +1,4 @@
-from topax.sdfs import SDF, sphere, intersect
+from topax.sdfs import SDF, sphere, intersect, box
 from topax.ops import Op, OpType
 from topax._builders import Builder
 
@@ -8,11 +8,11 @@ class gyroid(SDF):
 
     def sdf_definition(self, p):
         scaled_p = p * self.scale
-        gyroid = Op(OpType.ABS, Op(OpType.DOT, Op(OpType.SIN, scaled_p), Op(OpType.COS, scaled_p.yzx))) * 0.33 - self.fill
+        gyroid = Op(OpType.ABS, Op(OpType.DOT, Op(OpType.SIN, scaled_p), Op(OpType.COS, scaled_p.yzx))) * 0.5 - self.fill
         return gyroid
 
 def make_part():
     return intersect(
-        gyroid(1.0, 0.05),
-        sphere(5.0)
+        gyroid(2.0, 0.1),
+        box([2.0, 2.0, 2.0])
     )
