@@ -95,7 +95,7 @@ vec4 mainImage( in vec2 fragCoord )
         vec3 nor = calcNormal(pos);
         float dif = clamp( dot(nor,vec3(0.57703)), 0.0, 1.0 ) * 0.2;
         float amb = 1.4 + 0.3*dot(nor,vec3(0.0,1.0,0.0));
-        color.xyz = vec3(0.2,0.3,0.4)*amb + vec3(0.8,0.7,0.5)*dif;
+        color.xyz = clamp(vec3(0.5,0.2,0.1), 0.1, 0.9) * amb + vec3(0.8,0.7,0.5)*dif*0.2;
     }
 
     return color;

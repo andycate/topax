@@ -11,28 +11,30 @@ uniform float _fx;
 uniform float _stopEpsilon;
 uniform float _tmax;
 
-{% for i in global_inputs -%}
-uniform {{ i.type }} {{ i.name }};
+uniform vec3 sdf_colors[{{sdfs|length}}];
+
+{% for g in global_inputs -%}
+uniform {{g}};
 {% endfor %}
 
-float map(in vec3 p)
+{% for sdf in sdfs %}
+float map_{{sdf.name}}(in vec3 p)
 {
-    float d;
-    {% for line in lines -%}
+    {% for line in sdf.lines -%}
     {{line}}
     {% endfor %}
-    return d;
 }
 
-vec3 calcNormal( in vec3 pos )
+vec3 calcNormal_{{sdf.name}}( in vec3 pos )
 {
     vec2 e = vec2(1.0,-1.0);
-    const float eps = 0.0005;
-    return normalize( e.xyy*map( pos + e.xyy*eps ) + 
-					  e.yyx*map( pos + e.yyx*eps ) + 
-					  e.yxy*map( pos + e.yxy*eps ) + 
-					  e.xxx*map( pos + e.xxx*eps ) );
+    // const float eps = 0.0005;
+    return normalize( e.xyy*map_{{sdf.name}}( pos + e.xyy*_stopEpsilon ) + 
+					  e.yyx*map_{{sdf.name}}( pos + e.yyx*_stopEpsilon ) + 
+					  e.yxy*map_{{sdf.name}}( pos + e.yxy*_stopEpsilon ) + 
+					  e.xxx*map_{{sdf.name}}( pos + e.xxx*_stopEpsilon ) );
 }
+{% endfor %}
 
 vec4 mainImage( in vec2 fragCoord )
 {
@@ -48,30 +50,48 @@ vec4 mainImage( in vec2 fragCoord )
     vec3 p0 = cam_right * normalized_coord.x + cam_down * normalized_coord.y;
     p0 += _camPose;
 
-        
-    vec3 tot = vec3(0.0);
 
     // raymarch
-    const float tmax = 3.0;
+    int closest_object = -1;
+    float closest_dist = _tmax;
     float t = 0.0;
     float h = 0.0;
     vec3 pos;
+    {% for sdf in sdfs %}
+    t = 0.0;
     for( uint i=0u; i<_maxSteps; i++ )
     {
         pos = p0 + t*cam_norm;
-        h = map(pos);
-        if( h<_stopEpsilon || t>_tmax ) break;
+        h = map_{{sdf.name}}(pos);
         t += h;
+        if (t>closest_dist) break;
+        if( h<_stopEpsilon ) {
+            closest_object = {{loop.index0}};
+            closest_dist = t;
+        }
+    }
+    {% endfor %}
+
+    vec3 nor;
+    switch(closest_object)
+    {
+        case -1:
+            break;
+        {% for sdf in sdfs %}
+        case {{loop.index0}}:
+            nor = calcNormal_{{sdf.name}}(p0 + closest_dist*cam_norm);
+            break;
+        {% endfor %}   
     }
 
     vec4 color = vec4(0.0);
-    if( h<_stopEpsilon ) {
+    if( closest_object != -1 ) {
         color.w = 1.0;
-        vec3 nor = calcNormal(pos);
         float dif = clamp( dot(nor,vec3(0.57703)), 0.0, 1.0 ) * 0.2;
         float amb = 1.4 + 0.3*dot(nor,vec3(0.0,1.0,0.0));
         // color.xyz = vec3(0.2,0.3,0.4)*amb + vec3(0.8,0.7,0.5)*dif;
-        color.xyz = vec3(0.2,0.3,0.4)*amb + vec3(0.8,0.7,0.5)*dif;
+        // color.xyz = vec3(0.2,0.3,0.4)*amb + vec3(0.8,0.7,0.5)*dif;
+        color.xyz = clamp(sdf_colors[closest_object], 0.1, 0.9) * amb + vec3(0.8,0.7,0.5)*dif*0.2;
     }
 
     return color;
