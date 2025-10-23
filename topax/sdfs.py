@@ -54,10 +54,11 @@ class SDF(abc.ABC):
         return super().__setattr__(name, value)
     
     def _hash(self, ctx):
-        if self.__class__.__name__ not in ctx: ctx[self.__class__.__name__] = {}
-        if self not in ctx[self.__class__.__name__]:
-            ctx[self.__class__.__name__][self] = len(ctx[self.__class__.__name__].keys())
-        return f"{self.__class__.__name__}{ctx[self.__class__.__name__][self]}({','.join([sdf._hash(ctx) for sdf in self._sdfs]) if hasattr(self, '_sdfs') else ''};{','.join([repr(const) for _, const in self._consts.items()]) if hasattr(self, '_consts') else ''})"
+        cls_name = self.__class__.__name__
+        if cls_name not in ctx: ctx[cls_name] = {}
+        if self not in ctx[cls_name]:
+            ctx[cls_name][self] = len(ctx[cls_name].keys())
+        return f"{cls_name}{ctx[cls_name][self]}({','.join([sdf._hash(ctx) for sdf in self._sdfs]) if hasattr(self, '_sdfs') else ''};{','.join([repr(const) for _, const in self._consts.items()]) if hasattr(self, '_consts') else ''})"
     
     def hash(self):
         return self._hash({})
@@ -107,6 +108,19 @@ class box(SDF):
     def sdf_definition(self, p):
         q = Op(OpType.ABS, p) - self.size
         return ops.length(ops.max(q, 0.0)) + ops.min(ops.max(q.x, ops.max(q.y, q.z)), 0.0)
+    
+class cylinder(SDF):
+    def __init__(
+        self,
+        r: float,
+        h: float,
+    ):
+        self.add_input('r', r, DType.float)
+        self.add_input('h', h, DType.float)
+
+    def sdf_definition(self, p):
+        d = ops.abs(ops.vec2(ops.length(p.xz),p.y)) - ops.vec2(self.r,self.h)
+        return ops.min(ops.max(d.x,d.y),0.0) + ops.length(ops.max(d,0.0))
     
 class translate(SDF):
     def __init__(self, sdf: SDF, offset: ArrayLike):

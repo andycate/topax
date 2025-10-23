@@ -5,10 +5,17 @@ import numpy as np
 import jax.numpy as jnp
 
 class DType(Enum):
-    vec2 = 1
-    vec3 = 2
-    vec4 = 3
-    float = 4
+    ivec2 = 1
+    ivec3 = 2
+    ivec4 = 3
+    vec2 = 4
+    vec3 = 5
+    vec4 = 6
+    mat2 = 7
+    mat3 = 7
+    mat4 = 8
+    float = 9
+    int = 10
 
 
 @dataclass(frozen=True)
@@ -18,31 +25,39 @@ class RetType:
 
     @staticmethod
     def resolve_type(item: Any):
-        if hasattr(item, '__iter__'):
-            l = len(item)
-            item = item.item() if hasattr(item, 'item') else item[0]
-        else:
-            l = None
+        if hasattr(item, 'shape'): s = item.shape
+        elif hasattr(item, '__iter__'): s = (len(item),)
+        else: s = tuple()
         
         raw_type = None
         if hasattr(item, 'dtype'):
             raw_type_name = item.dtype.name
             if raw_type_name.find('float') > -1: raw_type = DType.float
+            elif raw_type_name.find('int') > -1: raw_type = DType.int
+        elif len(s) > 0:
+            if isinstance(item[0], float): raw_type = DType.float
+            elif isinstance(item[0], int): raw_type = DType.int
         else:
             if isinstance(item, float): raw_type = DType.float
-        match l:
-            case 2:
-                l = None
-                if raw_type == DType.float: raw_type = DType.vec2
-            case 3:
-                l = None
-                if raw_type == DType.float: raw_type = DType.vec3
-            case 4:
-                l = None
-                if raw_type == DType.float: raw_type = DType.vec4
-        if raw_type is None:
-            raise TypeError(f"type not detected for value {item}")
-        return RetType(raw_type, l)
+            elif isinstance(item, int): raw_type = DType.int
+
+        if raw_type == DType.float:
+            if len(s) == 0: return RetType(DType.float, None)
+            elif len(s) == 1 and s[0] == 2: return RetType(DType.vec2, None)
+            elif len(s) == 1 and s[0] == 3: return RetType(DType.vec3, None)
+            elif len(s) == 1 and s[0] == 4: return RetType(DType.vec4, None)
+            elif len(s) == 2 and s[0] == 2 and s[1] == 2: return RetType(DType.mat2, None)
+            elif len(s) == 2 and s[0] == 3 and s[1] == 3: return RetType(DType.mat3, None)
+            elif len(s) == 2 and s[0] == 4 and s[1] == 4: return RetType(DType.mat4, None)
+            elif len(s) == 1: return RetType(DType.float, s[0])
+        if raw_type == DType.int:
+            if len(s) == 0: return RetType(DType.int, None)
+            elif len(s) == 1 and s[0] == 2: return RetType(DType.ivec2, None)
+            elif len(s) == 1 and s[0] == 3: return RetType(DType.ivec3, None)
+            elif len(s) == 1 and s[0] == 4: return RetType(DType.ivec4, None)
+            elif len(s) == 1: return RetType(DType.int, s[0])
+        
+        raise TypeError(f"type not detected for value {item}")
         
 
 
@@ -62,19 +77,21 @@ class OpType(Enum):
     ASIN = 11
     ACOS = 12
     ATAN = 13
-    MIN = 14
-    MAX = 15
-    NEG = 16
-    ABS = 17
-    DOT = 18
-    X = 19
-    Y = 20
-    Z = 21
-    XY = 22
-    XZ = 23
-    YZ = 24
-    YZX = 25
-    ZXY = 26
+    MIN = 15
+    MAX = 16
+    NEG = 17
+    ABS = 18
+    DOT = 19
+    X = 20
+    Y = 21
+    Z = 22
+    XY = 23
+    XZ = 24
+    YZ = 25
+    YZX = 26
+    ZXY = 27
+    VEC2 = 28
+    SUBIDX = 29
 
 @dataclass(frozen=True)
 class Op:
@@ -145,6 +162,7 @@ class Op:
                 case OpType.DOT: self._set_rettype(DType.float)
                 case OpType.NEG: self._set_rettype(self.args[0].rettype)
                 case OpType.ABS: self._set_rettype(self.args[0].rettype)
+                case OpType.VEC2: self._set_rettype(DType.vec2)
                 case _: raise NotImplementedError(f"rettype for opcode {self.opcode} not supported")
 
     @property
@@ -178,9 +196,15 @@ class Op:
 
     def __truediv__(self, rhs): return Op(OpType.DIV, (self, rhs))
     def __rtruediv__(self, lhs): return Op(OpType.DIV, (lhs, self))
+
+    def __getitem__(self, key):
+        assert self.rettype.length is not None
+        assert isinstance(key, int)
+        assert key < self.rettype.length
+        return Op(OpType.SUBIDX, (self, Op(OpType.CONST, (key,), DType.int, value=key)), rettype=self.rettype.dtype)
     
     def __repr__(self):
-        return f"{self.opcode}({self.name};{repr(self.sdf) if self.sdf is not None else ''};{','.join([repr(arg) for arg in self.args])})->{self.rettype}"
+        return f"{self.opcode}({self.name};{','.join([repr(arg) for arg in self.args])})->{self.rettype}"
 
 def length(arg): return Op(OpType.LEN, (arg,))
 def min(*args): return Op(OpType.MIN, tuple(args))
@@ -189,3 +213,5 @@ def abs(arg): return Op(OpType.ABS, (arg,))
 def dot(arg1, arg2): return Op(OpType.DOT, (arg1, arg2))
 def sin(arg): return Op(OpType.SIN, (arg,))
 def cos(arg): return Op(OpType.COS, (arg,))
+def vec2(*args): return Op(OpType.VEC2, args)
+def atan(*args): return Op(OpType.ATAN, args)

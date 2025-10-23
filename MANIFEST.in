@@ -1,1 +1,2 @@
 recursive-include topax/templates *
+recursive-include topax/resources *
