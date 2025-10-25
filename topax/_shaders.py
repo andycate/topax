@@ -272,10 +272,10 @@ void main() {
     def get_local_vars_ttl(tape: list[Op]) -> dict[Op, int]:
         vars_ttl = {}
         for i, l in enumerate(tape):
-            vars_ttl[l] = i
+            vars_ttl[l] = i+1
             for arg in l.args:
                 if arg.opcode == OpType.CONST: continue
-                vars_ttl[arg] = i
+                vars_ttl[arg] = i+1
         return vars_ttl
     
     @staticmethod
@@ -338,7 +338,7 @@ void main() {
                 if arg.opcode == OpType.CONST and arg.sdf is None: arg_expressions.append(ShaderGLSL.get_static_expression(arg))
                 elif arg in local_expressions: # true if this arg is not a global var
                     arg_expressions.append(local_expressions[arg])
-                    if vars_ttl[arg] == ti:# and arg not in op.args[ai+1:]: # if the last reference of this var is at this line
+                    if vars_ttl[arg] == ti and arg not in op.args[ai+1:]: # if the last reference of this var is at this line
                         if arg in local_var_ops:
                             local_vars_available[arg.rettype].append(local_expressions[arg])
                             local_var_ops.remove(arg)
