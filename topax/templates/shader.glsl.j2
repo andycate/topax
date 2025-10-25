@@ -65,7 +65,7 @@ vec4 mainImage( in vec2 fragCoord )
     {
         pos = p0 + t*cam_norm;
         h = map_{{sdf.name}}(pos);
-        t += h;
+        t += h * 0.33;
         if (t>closest_dist) break;
         if( abs(h)<_stopEpsilon ) {
             closest_object = {{loop.index0}};

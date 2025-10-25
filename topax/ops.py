@@ -91,7 +91,13 @@ class OpType(Enum):
     YZX = 26
     ZXY = 27
     VEC2 = 28
-    SUBIDX = 29
+    VEC3 = 29
+    VEC4 = 30
+    MAT2 = 31
+    MAT3 = 32
+    MAT4 = 33
+    SUBIDX = 34
+    EXP2 = 35
 
 @dataclass(frozen=True)
 class Op:
@@ -125,6 +131,13 @@ class Op:
             assert rettype is not None
             object.__setattr__(self, 'rettype', RetType(rettype))
 
+    def _set_rettype_mul(self, rettype=None):
+        if len(self.args) == 2 and self.args[0].rettype.dtype in [DType.mat2, DType.mat3, DType.mat4] and self.args[1].rettype.dtype in [DType.vec2, DType.vec3, DType.vec4]:
+            return self._set_rettype(rettype=RetType(self.args[1].rettype.dtype))
+        else:
+            return self._set_rettype()
+            
+
     def __post_init__(self):
         args = self.args
         if not hasattr(args, '__iter__'):
@@ -132,13 +145,14 @@ class Op:
         if self.opcode != OpType.CONST:
             args = [Op(OpType.CONST, (arg,), RetType.resolve_type(arg), value=arg) if not isinstance(arg, Op) else arg for arg in args]
         object.__setattr__(self, 'args', tuple(args))
+        assert all([not isinstance(a, Op) or a.rettype is not None for a in self.args]), f"{[a.rettype for a in self.args]}"
         if isinstance(self.rettype, DType):
             object.__setattr__(self, 'rettype', RetType(self.rettype))
         elif self.rettype == None:
             match self.opcode:
                 case OpType.ADD: self._set_rettype()
                 case OpType.SUB: self._set_rettype()
-                case OpType.MUL: self._set_rettype()
+                case OpType.MUL: self._set_rettype_mul()
                 case OpType.DIV: self._set_rettype()
                 case OpType.LEN: self._set_rettype(DType.float)
                 case OpType.NORM: self._set_rettype()
@@ -163,6 +177,12 @@ class Op:
                 case OpType.NEG: self._set_rettype(self.args[0].rettype)
                 case OpType.ABS: self._set_rettype(self.args[0].rettype)
                 case OpType.VEC2: self._set_rettype(DType.vec2)
+                case OpType.VEC3: self._set_rettype(DType.vec3)
+                case OpType.VEC4: self._set_rettype(DType.vec4)
+                case OpType.MAT2: self._set_rettype(DType.mat2)
+                case OpType.MAT3: self._set_rettype(DType.mat3)
+                case OpType.MAT4: self._set_rettype(DType.mat4)
+                case OpType.EXP2: self._set_rettype(self.args[0].rettype)
                 case _: raise NotImplementedError(f"rettype for opcode {self.opcode} not supported")
 
     @property
@@ -213,5 +233,11 @@ def abs(arg): return Op(OpType.ABS, (arg,))
 def dot(arg1, arg2): return Op(OpType.DOT, (arg1, arg2))
 def sin(arg): return Op(OpType.SIN, (arg,))
 def cos(arg): return Op(OpType.COS, (arg,))
+def exp2(arg): return Op(OpType.EXP2, (arg,))
 def vec2(*args): return Op(OpType.VEC2, args)
+def vec3(*args): return Op(OpType.VEC3, args)
+def vec4(*args): return Op(OpType.VEC4, args)
+def mat2(v): return Op(OpType.MAT2, [_v[0] for _v in v] + [_v[1] for _v in v])
+def mat3(v): return Op(OpType.MAT3, [_v[0] for _v in v] + [_v[1] for _v in v] + [_v[2] for _v in v])
+def mat4(v): return Op(OpType.MAT4, [_v[0] for _v in v] + [_v[1] for _v in v] + [_v[2] for _v in v] + [_v[3] for _v in v])
 def atan(*args): return Op(OpType.ATAN, args)

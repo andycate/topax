@@ -35,6 +35,7 @@ def rotation_matrix_about_vector(angle, axis_vec):
 
 def compile_shader(src, shader_type):
     shader = gl.glCreateShader(shader_type)
+    print(src)
     gl.glShaderSource(shader, src)
     gl.glCompileShader(shader)
     if not gl.glGetShaderiv(shader, gl.GL_COMPILE_STATUS):

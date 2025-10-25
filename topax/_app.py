@@ -97,12 +97,36 @@ class SceneHandler:
         glfw.swap_buffers(self.window)
 
 
+class CLI:
+    class FileEventHandler(FileSystemEventHandler):
+        def __init__(self, callback):
+            self._on_modified = callback
+
+        def on_modified(self, event: FileSystemEvent) -> None:
+            self._on_modified(event)
+
+    def __init__(self, target_path, sdf_event: threading.Event):
+        self.target_path = target_path
+        self.sdf_event = sdf_event
+        self.event_handler = CLI.FileEventHandler(self._file_change_event)
+        self.observer = Observer()
+        self.observer.schedule(self.event_handler, Path(self.target_path).parent, recursive=True)
+        self.observer.start()
+
+    def _file_change_event(self, event):
+        print(event)
+        if not Path(event.src_path).exists(): return
+        if Path(event.src_path).samefile(self.target_path):
+            self.sdf_event.set()
+            glfw.post_empty_event()
+
 
 def main():
     global _SDF_REGISTRY
     # Parse argments
     parser = argparse.ArgumentParser()
     parser.add_argument("--spacemouse", action='store_true', help='enable space mouse interface')
+    parser.add_argument("--auto_reload", action='store_true', help='enable auto file reloading')
     parser.add_argument("file", help="python file to read from")
     args = parser.parse_args()
     project_file = Path(args.file)
@@ -206,6 +230,11 @@ def main():
             spacemouse_thread_id = threading.Thread(target=spacemouse_thread, daemon=True)
             spacemouse_thread_id.start()
 
+    # set up auto file reloading
+    sdf_file_change_event = threading.Event()
+    if args.auto_reload:
+        sdf_reloader_cli = CLI(args.file, sdf_file_change_event)
+
     update_target_file()
 
     # Main application loop
@@ -215,6 +244,10 @@ def main():
             scene.rotate_rpy(dof.roll, dof.pitch, dof.yaw)
             scene.zoom(dof.y)
             scene.draw_scene(fast=True)
+
+        if sdf_file_change_event.is_set():
+            sdf_file_change_event.clear()
+            update_target_file()
 
         glfw.wait_events()
 

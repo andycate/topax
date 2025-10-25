@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from warnings import warn
 
 import topax.ops as ops
-from topax.ops import Op, OpType, DType, RetType
+from topax.ops import Op, OpType, DType, RetType, sin, cos, mat3
 
 
 class SDF(abc.ABC):
@@ -130,6 +130,39 @@ class translate(SDF):
 
     def sdf_definition(self, p):
         return self.sdf(p - self.offset)
+    
+class rotate(SDF):
+    def __init__(self, sdf: SDF, axis: str, angle: float):
+        self.add_sdfs(sdf)
+        self.axis = axis
+        self.add_input('angle', np.deg2rad(angle), DType.float)
+        self.sdf = sdf
+
+    def sdf_definition(self, p):
+        s, c = sin(self.angle), cos(self.angle)
+        match self.axis:
+            case 'x':
+                rot = [
+                    [1., 0., 0.], 
+                    [0., c, -s], 
+                    [0., s, c]
+                ]
+            case 'y':
+                rot = [
+                    [c, 0., s], 
+                    [0., 1., 0.], 
+                    [-s, 0., c]
+                ]
+            case 'z':
+                rot = [
+                    [c, -s, 0.], 
+                    [s, c, 0.], 
+                    [0., 0., 1.]
+                ]
+            case _:
+                raise ValueError(f"Axis must be 'x' 'y' or 'z', not {self.axis}")
+        p = mat3(rot) * p
+        return self.sdf(p)
     
 class union(SDF):
     def __init__(self, *sdfs: SDF):

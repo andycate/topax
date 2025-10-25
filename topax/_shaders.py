@@ -7,6 +7,7 @@ import OpenGL.GL as gl
 import glm
 from enum import IntEnum
 from dataclasses import dataclass
+from ordered_set import OrderedSet
 
 from topax.ops import Op, OpType, DType, RetType
 from topax.sdfs import SDF, empty
@@ -195,9 +196,9 @@ void main() {
                 case DType.vec2: gl.glUniform2f(location, *np.atleast_1d(k.value).astype(np.float32))
                 case DType.vec3: gl.glUniform3f(location, *np.atleast_1d(k.value).astype(np.float32))
                 case DType.vec4: gl.glUniform4f(location, *np.atleast_1d(k.value).astype(np.float32))
-                case DType.mat2: gl.glUniformMatrix2fv(location, 1, gl.GL_TRUE, *np.atleast_1d(k.value).astype(np.float32).ravel())
-                case DType.mat3: gl.glUniformMatrix3fv(location, 1, gl.GL_TRUE, *np.atleast_1d(k.value).astype(np.float32).ravel())
-                case DType.mat4: gl.glUniformMatrix4fv(location, 1, gl.GL_TRUE, *np.atleast_1d(k.value).astype(np.float32).ravel())
+                case DType.mat2: gl.glUniformMatrix2fv(location, 1, gl.GL_FALSE, np.atleast_1d(k.value).astype(np.float32).flatten())
+                case DType.mat3: gl.glUniformMatrix3fv(location, 1, gl.GL_FALSE, np.atleast_1d(k.value).astype(np.float32).flatten())
+                case DType.mat4: gl.glUniformMatrix4fv(location, 1, gl.GL_FALSE, np.atleast_1d(k.value).astype(np.float32).flatten())
                 case DType.int:
                     if k.rettype.length is not None: gl.glUniform1iv(location, k.rettype.length, np.atleast_1d(k.value).astype(np.int32))
                     else: gl.glUniform1i(location, int(k.value))
@@ -311,7 +312,7 @@ void main() {
             case DType.ivec2: defin = f"ivec2 {name}"
             case DType.ivec3: defin = f"ivec3 {name}"
             case DType.ivec4: defin = f"ivec4 {name}"
-            case _: raise TypeError(f"var definition not supported for type {type}")
+            case _: raise TypeError(f"var definition not supported for type {type} | name {name}")
         if type.length is not None:
             defin += f"[{int(type.length)}]"
         return defin
@@ -332,12 +333,12 @@ void main() {
         for ti, op in enumerate(tape):
             assert op not in local_expressions, "duplicate op expression found!"
             arg_expressions = [] # each element is a string for the corresponding op arg, either a variable name or a direct expression
-            for arg in op.args:
+            for ai, arg in enumerate(op.args):
                 # if this is a constant static expression, just convert directly to expression
                 if arg.opcode == OpType.CONST and arg.sdf is None: arg_expressions.append(ShaderGLSL.get_static_expression(arg))
                 elif arg in local_expressions: # true if this arg is not a global var
                     arg_expressions.append(local_expressions[arg])
-                    if vars_ttl[arg] == ti: # if the last reference of this var is at this line
+                    if vars_ttl[arg] == ti:# and arg not in op.args[ai+1:]: # if the last reference of this var is at this line
                         if arg in local_var_ops:
                             local_vars_available[arg.rettype].append(local_expressions[arg])
                             local_var_ops.remove(arg)
@@ -346,7 +347,7 @@ void main() {
                     try:
                         arg_expressions.append(global_vars[arg])
                     except KeyError as e:
-                        # print(local_expressions)
+                        print(ti, local_expressions)
                         raise e
 
             match op.opcode:
@@ -366,12 +367,18 @@ void main() {
                 case OpType.Z: expression = f"{arg_expressions[0]}.z"
                 case OpType.SIN: expression = f"sin({arg_expressions[0]})"
                 case OpType.COS: expression = f"cos({arg_expressions[0]})"
+                case OpType.EXP2: expression = f"exp2({arg_expressions[0]})"
                 case OpType.TAN: expression = f"tan({arg_expressions[0]})"
                 case OpType.ASIN: expression = f"asin({", ".join(arg_expressions)})"
                 case OpType.ACOS: expression = f"acos({", ".join(arg_expressions)})"
                 case OpType.ATAN: expression = f"atan({", ".join(arg_expressions)})"
                 case OpType.ABS: expression = f"abs({arg_expressions[0]})"
                 case OpType.VEC2: expression = f"vec2({", ".join(arg_expressions)})"
+                case OpType.VEC3: expression = f"vec3({", ".join(arg_expressions)})"
+                case OpType.VEC4: expression = f"vec4({", ".join(arg_expressions)})"
+                case OpType.MAT2: expression = f"mat2({", ".join(arg_expressions)})"
+                case OpType.MAT3: expression = f"mat3({", ".join(arg_expressions)})"
+                case OpType.MAT4: expression = f"mat4({", ".join(arg_expressions)})"
                 case OpType.SUBIDX: expression = f"{arg_expressions[0]}[{arg_expressions[1]}]"
                 case OpType.NEG: expression = f"-{arg_expressions[0]}"
                 case OpType.MIN:
