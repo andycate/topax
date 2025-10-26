@@ -98,6 +98,9 @@ class OpType(Enum):
     MAT4 = 33
     SUBIDX = 34
     EXP2 = 35
+    MOD = 36
+    CLAMP = 37
+    ROUND = 38
 
 @dataclass(frozen=True)
 class Op:
@@ -183,6 +186,9 @@ class Op:
                 case OpType.MAT3: self._set_rettype(DType.mat3)
                 case OpType.MAT4: self._set_rettype(DType.mat4)
                 case OpType.EXP2: self._set_rettype(self.args[0].rettype)
+                case OpType.MOD: self._set_rettype()
+                case OpType.CLAMP: self._set_rettype(self.args[0].rettype)
+                case OpType.ROUND: self._set_rettype(self.args[0].rettype)
                 case _: raise NotImplementedError(f"rettype for opcode {self.opcode} not supported")
 
     @property
@@ -233,6 +239,7 @@ def abs(arg): return Op(OpType.ABS, (arg,))
 def dot(arg1, arg2): return Op(OpType.DOT, (arg1, arg2))
 def sin(arg): return Op(OpType.SIN, (arg,))
 def cos(arg): return Op(OpType.COS, (arg,))
+def tan(arg): return Op(OpType.TAN, (arg,))
 def exp2(arg): return Op(OpType.EXP2, (arg,))
 def vec2(*args): return Op(OpType.VEC2, args)
 def vec3(*args): return Op(OpType.VEC3, args)
@@ -241,3 +248,6 @@ def mat2(v): return Op(OpType.MAT2, [_v[0] for _v in v] + [_v[1] for _v in v])
 def mat3(v): return Op(OpType.MAT3, [_v[0] for _v in v] + [_v[1] for _v in v] + [_v[2] for _v in v])
 def mat4(v): return Op(OpType.MAT4, [_v[0] for _v in v] + [_v[1] for _v in v] + [_v[2] for _v in v] + [_v[3] for _v in v])
 def atan(*args): return Op(OpType.ATAN, args)
+def mod(x, y): return Op(OpType.MOD, (x, y))
+def clamp(x, l, u): return Op(OpType.CLAMP, (x, l, u))
+def round(x): return Op(OpType.ROUND, (x,))

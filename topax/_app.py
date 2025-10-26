@@ -39,6 +39,26 @@ class SceneHandler:
         self.mode = ShaderMode.AMBIENT
         self.shader = ShaderGLSL()
 
+    def set_view_front(self):
+        self.camera_position = np.array([0.0, -1.0, 0.0]) * np.linalg.norm(self.camera_position)
+        self.camera_up = np.array([0.0, 0.0, 1.0])
+        self.looking_at = np.array([0.0, 0.0, 0.0])
+
+    def set_view_top(self):
+        self.camera_position = np.array([0.0, 0.0, 1.0]) * np.linalg.norm(self.camera_position)
+        self.camera_up = np.array([0.0, 1.0, 0.0])
+        self.looking_at = np.array([0.0, 0.0, 0.0])
+
+    def set_view_left(self):
+        self.camera_position = np.array([-1.0, 0.0, 0.0]) * np.linalg.norm(self.camera_position)
+        self.camera_up = np.array([0.0, 0.0, 1.0])
+        self.looking_at = np.array([0.0, 0.0, 0.0])
+
+    def set_view_right(self):
+        self.camera_position = np.array([1.0, 0.0, 0.0]) * np.linalg.norm(self.camera_position)
+        self.camera_up = np.array([0.0, 0.0, 1.0])
+        self.looking_at = np.array([0.0, 0.0, 0.0])
+
     def rotate_2d(self, dx, dy):
         cam_right = normalize(np.linalg.cross(-self.camera_position, self.camera_up))
         x_rot = rotation_matrix_about_vector(-dx / 300., self.camera_up)
@@ -201,10 +221,31 @@ def main():
                 case glfw.KEY_M:
                     scene.mode = (scene.mode + 1) % len(ShaderMode)
                     scene.draw_scene()
-                case glfw.KEY_R:
+                case glfw.KEY_U:
                     # reload target file
-                    print("reloading target file")
+                    print("updating target file")
                     update_target_file()
+                case glfw.KEY_F:
+                    # move view to front
+                    print("setting view to front")
+                    scene.set_view_front()
+                    scene.draw_scene()
+                case glfw.KEY_T:
+                    # move view to front
+                    print("setting view to front")
+                    scene.set_view_top()
+                    scene.draw_scene()
+                case glfw.KEY_L:
+                    # move view to front
+                    print("setting view to front")
+                    scene.set_view_left()
+                    scene.draw_scene()
+                case glfw.KEY_R:
+                    # move view to front
+                    print("setting view to front")
+                    scene.set_view_right()
+                    scene.draw_scene()
+
 
     glfw.set_mouse_button_callback(window, mouse_button_callback)
     glfw.set_cursor_pos_callback(window, cursor_pos_callback)

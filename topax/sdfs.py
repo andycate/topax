@@ -7,7 +7,7 @@ from dataclasses import dataclass, replace
 from warnings import warn
 
 import topax.ops as ops
-from topax.ops import Op, OpType, DType, RetType, sin, cos, mat3
+from topax.ops import Op, OpType, DType, RetType
 
 
 class SDF(abc.ABC):
@@ -62,6 +62,8 @@ class SDF(abc.ABC):
     
     def hash(self):
         return self._hash({})
+    
+
 
 
 class empty(SDF):
@@ -106,7 +108,7 @@ class box(SDF):
             self.add_input('size', size, DType.vec3)
 
     def sdf_definition(self, p):
-        q = Op(OpType.ABS, p) - self.size
+        q = ops.abs(p) - self.size
         return ops.length(ops.max(q, 0.0)) + ops.min(ops.max(q.x, ops.max(q.y, q.z)), 0.0)
     
 class cylinder(SDF):
@@ -121,6 +123,27 @@ class cylinder(SDF):
     def sdf_definition(self, p):
         d = ops.abs(ops.vec2(ops.length(p.xz),p.y)) - ops.vec2(self.r,self.h)
         return ops.min(ops.max(d.x,d.y),0.0) + ops.length(ops.max(d,0.0))
+    
+class gyroid(SDF):
+    def __init__(
+        self, 
+        scale: float=2.0, 
+        fill: float=0.08, 
+        thickness: float=0.33
+    ):
+        self.add_input('scale', scale, DType.float)
+        self.add_input('fill', fill, DType.float)
+        self.add_input('thickness', thickness, DType.float)
+
+    def sdf_definition(self, p):
+        scaled_p = p * self.scale
+        gyroid = ops.abs(
+            ops.dot(
+                ops.sin(scaled_p), 
+                ops.cos(scaled_p.yzx)
+            )
+        ) * self.thickness - self.fill
+        return gyroid
     
 class translate(SDF):
     def __init__(self, sdf: SDF, offset: ArrayLike):
@@ -139,7 +162,7 @@ class rotate(SDF):
         self.sdf = sdf
 
     def sdf_definition(self, p):
-        s, c = sin(self.angle), cos(self.angle)
+        s, c = ops.sin(self.angle), ops.cos(self.angle)
         match self.axis:
             case 'x':
                 rot = [
@@ -161,7 +184,7 @@ class rotate(SDF):
                 ]
             case _:
                 raise ValueError(f"Axis must be 'x' 'y' or 'z', not {self.axis}")
-        p = mat3(rot) * p
+        p = ops.mat3(rot) * p
         return self.sdf(p)
     
 class union(SDF):
@@ -201,3 +224,46 @@ class scale(SDF):
 
     def sdf_definition(self, p):
         return self.sdf(p / self.amount) * self.amount
+    
+class offset(SDF):
+    def __init__(self, sdf: SDF, amount: float):
+        self.add_sdfs(sdf)
+        self.add_input('amount', amount, DType.float)
+        self.sdf = sdf
+
+    def sdf_definition(self, p):
+        return self.sdf(p) - self.amount
+    
+class tlp(SDF):
+    """Truncated Linear Pattern"""
+    def __init__(self, sdf: SDF, spacing, nrep, sym=True):
+        self.add_sdfs(sdf)
+        self.add_input('spacing', spacing, DType.vec3)
+        self.add_input('nrep', nrep, DType.vec3)
+        self.sdf = sdf
+    
+    def sdf_definition(self, p: Op) -> Op:
+        q = p - self.spacing * ops.clamp(ops.round(p / self.spacing), -self.nrep, self.nrep)
+        return self.sdf(q)
+    
+class cp(SDF):
+    """Simple Circular Pattern"""
+    def __init__(self, sdf: SDF, r: float, nrep: float):
+        self.add_sdfs(sdf)
+        self.add_input('r', r, DType.float)
+        self.add_input('nrep', nrep, DType.float)
+        self.sdf = sdf
+    
+    def sdf_definition(self, p: Op) -> Op:
+        theta = ops.atan(p.y, p.x) # -np.pi to np.pi
+        r = ops.length(p.xy)
+        z = p.z
+        spacing = np.pi / self.nrep
+        theta_prime = theta - spacing * ops.clamp(ops.round(theta / spacing), -self.nrep, self.nrep)
+        ty = ops.sin(theta_prime) * r
+        tx = ops.cos(theta_prime) * r
+        q = ops.vec3(tx - self.r, ty, z)
+        return self.sdf(q)
+    
+class 
+
