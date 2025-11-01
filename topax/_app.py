@@ -14,8 +14,8 @@ from watchdog.observers import Observer
 import pyspacemouse
 
 from topax._utils import rotation_matrix_about_vector, normalize
-from topax._shaders import ShaderGLSL, ShaderMode
-from topax.sdfs import SDF, empty
+from topax._shaders_old import ShaderGLSL, ShaderMode
+from topax.sdfs_old import SDF, empty
 
 @dataclass
 class SDFRegistryEntry:

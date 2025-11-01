@@ -1,253 +1,231 @@
-from enum import Enum
-from typing import Any, List, Tuple
 from dataclasses import dataclass, field
-import numpy as np
-import jax.numpy as jnp
-
-class DType(Enum):
-    ivec2 = 1
-    ivec3 = 2
-    ivec4 = 3
-    vec2 = 4
-    vec3 = 5
-    vec4 = 6
-    mat2 = 7
-    mat3 = 7
-    mat4 = 8
-    float = 9
-    int = 10
-
+from typing import Any
+import topax.types as types
+from topax.types import DType, TypeEnum
+# from topax.sdfs_new import sdf
 
 @dataclass(frozen=True)
-class RetType:
-    dtype: DType
-    length: int | None = None
-
-    @staticmethod
-    def resolve_type(item: Any):
-        if hasattr(item, 'shape'): s = item.shape
-        elif hasattr(item, '__iter__'): s = (len(item),)
-        else: s = tuple()
-        
-        raw_type = None
-        if hasattr(item, 'dtype'):
-            raw_type_name = item.dtype.name
-            if raw_type_name.find('float') > -1: raw_type = DType.float
-            elif raw_type_name.find('int') > -1: raw_type = DType.int
-        elif len(s) > 0:
-            if isinstance(item[0], float): raw_type = DType.float
-            elif isinstance(item[0], int): raw_type = DType.int
-        else:
-            if isinstance(item, float): raw_type = DType.float
-            elif isinstance(item, int): raw_type = DType.int
-
-        if raw_type == DType.float:
-            if len(s) == 0: return RetType(DType.float, None)
-            elif len(s) == 1 and s[0] == 2: return RetType(DType.vec2, None)
-            elif len(s) == 1 and s[0] == 3: return RetType(DType.vec3, None)
-            elif len(s) == 1 and s[0] == 4: return RetType(DType.vec4, None)
-            elif len(s) == 2 and s[0] == 2 and s[1] == 2: return RetType(DType.mat2, None)
-            elif len(s) == 2 and s[0] == 3 and s[1] == 3: return RetType(DType.mat3, None)
-            elif len(s) == 2 and s[0] == 4 and s[1] == 4: return RetType(DType.mat4, None)
-            elif len(s) == 1: return RetType(DType.float, s[0])
-        if raw_type == DType.int:
-            if len(s) == 0: return RetType(DType.int, None)
-            elif len(s) == 1 and s[0] == 2: return RetType(DType.ivec2, None)
-            elif len(s) == 1 and s[0] == 3: return RetType(DType.ivec3, None)
-            elif len(s) == 1 and s[0] == 4: return RetType(DType.ivec4, None)
-            elif len(s) == 1: return RetType(DType.int, s[0])
-        
-        raise TypeError(f"type not detected for value {item}")
-        
-
-
-# TODO: make this enum numbering better
-class OpType(Enum):
-    CONST = 0
-    ADD = 1
-    SUB = 2
-    MUL = 3
-    DIV = 4
-    LEN = 5
-    NORM = 6
-    SQRT = 7
-    SIN = 8
-    COS = 9
-    TAN = 10
-    ASIN = 11
-    ACOS = 12
-    ATAN = 13
-    MIN = 15
-    MAX = 16
-    NEG = 17
-    ABS = 18
-    DOT = 19
-    X = 20
-    Y = 21
-    Z = 22
-    XY = 23
-    XZ = 24
-    YZ = 25
-    YZX = 26
-    ZXY = 27
-    VEC2 = 28
-    VEC3 = 29
-    VEC4 = 30
-    MAT2 = 31
-    MAT3 = 32
-    MAT4 = 33
-    SUBIDX = 34
-    EXP2 = 35
-    MOD = 36
-    CLAMP = 37
-    ROUND = 38
-
-@dataclass(frozen=True)
-class Op:
-    opcode: OpType
-    args: Tuple[Any]
-    rettype: RetType | None = None
-    sdf: Any | None = None
-    value: Any | None = field(default=None, hash=False, compare=False)
-    name: str = ""
-
-    # TODO: improve this logic to be more robust
-    def _set_rettype(self, rettype=None):
-        if rettype is not None:
-            if isinstance(rettype, DType):
-                rettype = RetType(rettype)
-            assert isinstance(rettype, RetType)
-            object.__setattr__(self, 'rettype', rettype)
-        else:
-            assert not any([arg.rettype.length is not None for arg in self.args]), "auto type resolving logic won't work for arrays"
-            typerank = {
-                None: 0,
-                DType.float: 1,
-                DType.vec2: 2,
-                DType.vec3: 3,
-                DType.vec4: 4,
-            }
-            for arg in self.args:
-                assert arg.rettype.dtype in typerank, f"can't auto resolve type for {arg.rettype}"
-                if typerank[arg.rettype.dtype] > typerank[rettype]:
-                    rettype = arg.rettype.dtype
-            assert rettype is not None
-            object.__setattr__(self, 'rettype', RetType(rettype))
-
-    def _set_rettype_mul(self, rettype=None):
-        if len(self.args) == 2 and self.args[0].rettype.dtype in [DType.mat2, DType.mat3, DType.mat4] and self.args[1].rettype.dtype in [DType.vec2, DType.vec3, DType.vec4]:
-            return self._set_rettype(rettype=RetType(self.args[1].rettype.dtype))
-        else:
-            return self._set_rettype()
-            
-
-    def __post_init__(self):
-        args = self.args
-        if not hasattr(args, '__iter__'):
-            args = [args]
-        if self.opcode != OpType.CONST:
-            args = [Op(OpType.CONST, (arg,), RetType.resolve_type(arg), value=arg) if not isinstance(arg, Op) else arg for arg in args]
-        object.__setattr__(self, 'args', tuple(args))
-        assert all([not isinstance(a, Op) or a.rettype is not None for a in self.args]), f"{[a.rettype for a in self.args]}"
-        if isinstance(self.rettype, DType):
-            object.__setattr__(self, 'rettype', RetType(self.rettype))
-        elif self.rettype == None:
-            match self.opcode:
-                case OpType.ADD: self._set_rettype()
-                case OpType.SUB: self._set_rettype()
-                case OpType.MUL: self._set_rettype_mul()
-                case OpType.DIV: self._set_rettype()
-                case OpType.LEN: self._set_rettype(DType.float)
-                case OpType.NORM: self._set_rettype()
-                case OpType.SQRT: self._set_rettype()
-                case OpType.SIN: self._set_rettype()
-                case OpType.COS: self._set_rettype()
-                case OpType.TAN: self._set_rettype()
-                case OpType.ASIN: self._set_rettype()
-                case OpType.ACOS: self._set_rettype()
-                case OpType.ATAN: self._set_rettype()
-                case OpType.MIN: self._set_rettype()
-                case OpType.MAX: self._set_rettype()
-                case OpType.X: self._set_rettype(DType.float)
-                case OpType.Y: self._set_rettype(DType.float)
-                case OpType.Z: self._set_rettype(DType.float)
-                case OpType.XY: self._set_rettype(DType.vec2)
-                case OpType.XZ: self._set_rettype(DType.vec2)
-                case OpType.YZ: self._set_rettype(DType.vec2)
-                case OpType.YZX: self._set_rettype(DType.vec3)
-                case OpType.ZXY: self._set_rettype(DType.vec3)
-                case OpType.DOT: self._set_rettype(DType.float)
-                case OpType.NEG: self._set_rettype(self.args[0].rettype)
-                case OpType.ABS: self._set_rettype(self.args[0].rettype)
-                case OpType.VEC2: self._set_rettype(DType.vec2)
-                case OpType.VEC3: self._set_rettype(DType.vec3)
-                case OpType.VEC4: self._set_rettype(DType.vec4)
-                case OpType.MAT2: self._set_rettype(DType.mat2)
-                case OpType.MAT3: self._set_rettype(DType.mat3)
-                case OpType.MAT4: self._set_rettype(DType.mat4)
-                case OpType.EXP2: self._set_rettype(self.args[0].rettype)
-                case OpType.MOD: self._set_rettype()
-                case OpType.CLAMP: self._set_rettype(self.args[0].rettype)
-                case OpType.ROUND: self._set_rettype(self.args[0].rettype)
-                case _: raise NotImplementedError(f"rettype for opcode {self.opcode} not supported")
-
-    @property
-    def x(self): return Op(OpType.X, (self,))
-    @property
-    def y(self): return Op(OpType.Y, (self,))
-    @property
-    def z(self): return Op(OpType.Z, (self,))
-    @property
-    def xy(self): return Op(OpType.XY, (self,))
-    @property
-    def xz(self): return Op(OpType.XZ, (self,))
-    @property
-    def yz(self): return Op(OpType.YZ, (self,))
-    @property
-    def yzx(self): return Op(OpType.YZX, (self,))
-    @property
-    def zxy(self): return Op(OpType.ZXY, (self,))
-
-    def __add__(self, rhs): return Op(OpType.ADD, (self, rhs))
-    def __radd__(self, lhs): return Op(OpType.ADD, (lhs, self))
-    
-    def __sub__(self, rhs): return Op(OpType.SUB, (self, rhs))
-    def __rsub__(self, lhs): return Op(OpType.SUB, (lhs, self))
+class OpBase:
+    type: types.DType
 
     def __pos__(self): return self
-    def __neg__(self): return Op(OpType.NEG, (self,))
+    def __neg__(self): return neg(self)
+    def __add__(self, rhs): return add(self, rhs)
+    def __radd__(self, lhs): return add(lhs, self)
+    def __sub__(self, rhs): return sub(self, rhs)
+    def __rsub__(self, lhs): return sub(lhs, self)
+    def __mul__(self, rhs): return mul(self, rhs)
+    def __rmul__(self, lhs): return mul(lhs, self)
+    def __truediv__(self, rhs): return div(self, rhs)
+    def __rtruediv__(self, lhs): return div(lhs, self)
+
+    def dot(self, rhs):
+        return dot(self, rhs)
+
+    @property
+    def x(self): return x_swizzle(self)
+    @property
+    def y(self): return y_swizzle(self)
+    @property
+    def z(self): return z_swizzle(self)
+    @property
+    def xy(self): return xy_swizzle(self)
+    @property
+    def yz(self): return yz_swizzle(self)
+    @property
+    def xz(self): return xz_swizzle(self)
+    @property
+    def yzx(self): return yzx_swizzle(self)
+
+    def grad(self, p):
+        raise NotImplementedError()
+
+    @staticmethod
+    def _get_broadcasted_type(lhs, rhs):
+        ranking = {
+            DType(TypeEnum.int): 0,
+            DType(TypeEnum.float): 1,
+            DType(TypeEnum.ivec2): 2,
+            DType(TypeEnum.vec2): 3,
+            DType(TypeEnum.ivec3): 4,
+            DType(TypeEnum.vec3): 5,
+            DType(TypeEnum.ivec4): 6,
+            DType(TypeEnum.vec4): 7,
+            DType(TypeEnum.mat2): 8,
+            DType(TypeEnum.mat3): 9,
+            DType(TypeEnum.mat4): 10,
+        }
+        return lhs.type if ranking[lhs.type] > ranking[rhs.type] else rhs.type
+
+@dataclass(frozen=True)
+class const(OpBase):
+    value: Any
+
+    def __post_init__(self):
+        if self.type is None: object.__setattr__(self, 'type', types.resolve_type(self.value))
+
+    def grad(self, p):
+        return const(self.type, self.type.zero())
+
+@dataclass(frozen=True)
+class param(OpBase):
+    """class representing a tunable param (a uniform in a glsl shader)"""
+    name: str
+    value: Any = field(repr=False, hash=False)
+    implicit: bool = False
+
+    def __post_init__(self):
+        if self.type is None: object.__setattr__(self, 'type', types.resolve_type(self.value))
+
+    def _update_name(self, name: str):
+        object.__setattr__(self, 'name', name)
+
+    def grad(self, p):
+        return const(self.type, self.type.one())
+
+@dataclass(frozen=True)
+class OpTree(OpBase):
+    args: tuple[OpBase]
+
+    def __post_init__(self):
+        args = tuple([a if isinstance(a, OpBase) else const(None, a) for a in self.args])
+        object.__setattr__(self, 'args', args)
     
-    def __mul__(self, rhs): return Op(OpType.MUL, (self, rhs))
-    def __rmul__(self, lhs): return Op(OpType.MUL, (lhs, self))
+    # def __repr__(self):
+    #     return f'{self.__class__.__name__}({','.join([a.__repr__() for a in self.args])})'
 
-    def __truediv__(self, rhs): return Op(OpType.DIV, (self, rhs))
-    def __rtruediv__(self, lhs): return Op(OpType.DIV, (lhs, self))
 
-    def __getitem__(self, key):
-        assert self.rettype.length is not None
-        assert isinstance(key, int)
-        assert key < self.rettype.length
-        return Op(OpType.SUBIDX, (self, Op(OpType.CONST, (key,), DType.int, value=key)), rettype=self.rettype.dtype)
+class neg(OpTree):
+    def __init__(self, lhs: OpBase):
+        type = lhs.type
+        super().__init__(type, args=(lhs,))
+
+    def grad(self, p: param):
+        return neg(self.args[0].grad(p))
+
+class add(OpTree):
+    def __init__(self, lhs: OpBase, rhs: OpBase):
+        type = OpBase._get_broadcasted_type(lhs, rhs)
+        super().__init__(type, args=(lhs, rhs))
+
+    def grad(self, p: param):
+        return neg(self.args[0].grad(p))
+
+class sub(OpTree):
+    def __init__(self, lhs: OpBase, rhs: OpBase):
+        type = OpBase._get_broadcasted_type(lhs, rhs)
+        super().__init__(type, args=(lhs, rhs))
+
+class mul(OpTree):
+    def __init__(self, lhs: OpBase, rhs: OpBase):
+        assert rhs.type not in {DType(TypeEnum.mat2), DType(TypeEnum.mat3), DType(TypeEnum.mat4)}
+        if lhs.type in {DType(TypeEnum.mat2), DType(TypeEnum.mat3), DType(TypeEnum.mat4)}:
+            assert (lhs.type, rhs.type) in {(DType(TypeEnum.mat2), DType(TypeEnum.vec2)), (DType(TypeEnum.mat3), DType(TypeEnum.vec3)), (DType(TypeEnum.mat4), DType(TypeEnum.vec4))}
+            type = rhs.type
+        else:
+            type = OpBase._get_broadcasted_type(lhs, rhs)
+        super().__init__(type, args=(lhs, rhs))
+
+class div(OpTree):
+    def __init__(self, lhs: OpBase, rhs: OpBase):
+        type = OpBase._get_broadcasted_type(lhs, rhs)
+        super().__init__(type, args=(lhs, rhs))
+
+class sin(OpTree):
+    def __init__(self, lhs: OpBase):
+        super().__init__(lhs.type, args=(lhs,))
+
+class cos(OpTree):
+    def __init__(self, lhs: OpBase):
+        super().__init__(lhs.type, args=(lhs,))
+
+class length(OpTree):
+    def __init__(self, lhs: OpBase):
+        assert lhs.type in {DType(TypeEnum.vec2), DType(TypeEnum.vec3), DType(TypeEnum.vec4)}
+        super().__init__(DType(TypeEnum.float), args=(lhs,))
     
-    def __repr__(self):
-        return f"{self.opcode}({self.name};{','.join([repr(arg) for arg in self.args])})->{self.rettype}"
+class dot(OpTree):
+    def __init__(self, lhs: OpBase, rhs: OpBase):
+        assert lhs.type in {DType(TypeEnum.vec2), DType(TypeEnum.vec3), DType(TypeEnum.vec4)}
+        assert lhs.type == rhs.type
+        super().__init__(DType(TypeEnum.float), args=(lhs, rhs))
 
-def length(arg): return Op(OpType.LEN, (arg,))
-def min(*args): return Op(OpType.MIN, tuple(args))
-def max(*args): return Op(OpType.MAX, tuple(args))
-def abs(arg): return Op(OpType.ABS, (arg,))
-def dot(arg1, arg2): return Op(OpType.DOT, (arg1, arg2))
-def sin(arg): return Op(OpType.SIN, (arg,))
-def cos(arg): return Op(OpType.COS, (arg,))
-def tan(arg): return Op(OpType.TAN, (arg,))
-def exp2(arg): return Op(OpType.EXP2, (arg,))
-def vec2(*args): return Op(OpType.VEC2, args)
-def vec3(*args): return Op(OpType.VEC3, args)
-def vec4(*args): return Op(OpType.VEC4, args)
-def mat2(v): return Op(OpType.MAT2, [_v[0] for _v in v] + [_v[1] for _v in v])
-def mat3(v): return Op(OpType.MAT3, [_v[0] for _v in v] + [_v[1] for _v in v] + [_v[2] for _v in v])
-def mat4(v): return Op(OpType.MAT4, [_v[0] for _v in v] + [_v[1] for _v in v] + [_v[2] for _v in v] + [_v[3] for _v in v])
-def atan(*args): return Op(OpType.ATAN, args)
-def mod(x, y): return Op(OpType.MOD, (x, y))
-def clamp(x, l, u): return Op(OpType.CLAMP, (x, l, u))
-def round(x): return Op(OpType.ROUND, (x,))
+class min(OpTree):
+    def __init__(self, lhs: OpBase, rhs: OpBase):
+        type = OpBase._get_broadcasted_type(lhs, rhs)
+        super().__init__(type, args=(lhs, rhs))
+
+class max(OpTree):
+    def __init__(self, lhs: OpBase, rhs: OpBase):
+        type = OpBase._get_broadcasted_type(lhs, rhs)
+        super().__init__(type, args=(lhs, rhs))
+
+class abs(OpTree):
+    def __init__(self, lhs: OpBase):
+        super().__init__(lhs.type, args=(lhs,))
+
+class vec3(OpTree):
+    def __init__(self, x: OpBase, y: OpBase, z: OpBase):
+        super().__init__(DType(TypeEnum.vec3), args=(x, y, z))
+
+class vec2(OpTree):
+    def __init__(self, x: OpBase, y: OpBase):
+        super().__init__(DType(TypeEnum.vec2), args=(x, y))
+
+class x_swizzle(OpTree):
+    def __init__(self, arg: OpBase):
+        if arg.type in {DType(TypeEnum.vec2), DType(TypeEnum.vec3), DType(TypeEnum.vec4)}:
+            type = DType(TypeEnum.float)
+        else:
+            type = DType(TypeEnum.int)
+        super().__init__(type, args=(arg,))
+
+class y_swizzle(OpTree):
+    def __init__(self, arg: OpBase):
+        if arg.type in {DType(TypeEnum.vec2), DType(TypeEnum.vec3), DType(TypeEnum.vec4)}:
+            type = DType(TypeEnum.float)
+        else:
+            type = DType(TypeEnum.int)
+        super().__init__(type, args=(arg,))
+
+class z_swizzle(OpTree):
+    def __init__(self, arg: OpBase):
+        if arg.type in {DType(TypeEnum.vec2), DType(TypeEnum.vec3), DType(TypeEnum.vec4)}:
+            type = DType(TypeEnum.float)
+        else:
+            type = DType(TypeEnum.int)
+        super().__init__(type, args=(arg,))
+
+class xy_swizzle(OpTree):
+    def __init__(self, arg: OpBase):
+        if arg.type in {DType(TypeEnum.vec2), DType(TypeEnum.vec3), DType(TypeEnum.vec4)}:
+            type = DType(TypeEnum.vec2)
+        else:
+            type = DType(TypeEnum.ivec2)
+        super().__init__(type, args=(arg,))
+
+class yz_swizzle(OpTree):
+    def __init__(self, arg: OpBase):
+        if arg.type in {DType(TypeEnum.vec2), DType(TypeEnum.vec3), DType(TypeEnum.vec4)}:
+            type = DType(TypeEnum.vec2)
+        else:
+            type = DType(TypeEnum.ivec2)
+        super().__init__(type, args=(arg,))
+
+class xz_swizzle(OpTree):
+    def __init__(self, arg: OpBase):
+        if arg.type in {DType(TypeEnum.vec2), DType(TypeEnum.vec3), DType(TypeEnum.vec4)}:
+            type = DType(TypeEnum.vec2)
+        else:
+            type = DType(TypeEnum.ivec2)
+        super().__init__(type, args=(arg,))
+
+class yzx_swizzle(OpTree):
+    def __init__(self, arg: OpBase):
+        if arg.type in {DType(TypeEnum.vec2), DType(TypeEnum.vec3), DType(TypeEnum.vec4)}:
+            type = DType(TypeEnum.vec3)
+        else:
+            type = DType(TypeEnum.ivec3)
+        super().__init__(type, args=(arg,))
+
+    
