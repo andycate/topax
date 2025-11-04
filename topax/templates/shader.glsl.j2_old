@@ -14,19 +14,26 @@ uniform uint _mode;
 
 uniform vec3 sdf_colors[{{sdfs|length}}];
 
-{% for g in global_uniforms -%}
-uniform {{g.dtype.base.name}} {{g.name}};
+{% for g in global_inputs -%}
+uniform {{g}};
 {% endfor %}
 
 {% for sdf in sdfs %}
-float map_{{sdf.prefix}}(in vec3 _p)
+float map_{{sdf.name}}(in vec3 p)
 {
-{{sdf.map_func}}
+    {% for line in sdf.lines -%}
+    {{line}}
+    {% endfor %}
 }
 
-vec3 calcNormal_{{sdf.prefix}}( in vec3 _p )
+vec3 calcNormal_{{sdf.name}}( in vec3 pos )
 {
-{{sdf.map_grad_func}}
+    vec2 e = vec2(1.0,-1.0);
+    // const float eps = 0.0005;
+    return normalize( e.xyy*map_{{sdf.name}}( pos + e.xyy*_stopEpsilon ) + 
+					  e.yyx*map_{{sdf.name}}( pos + e.yyx*_stopEpsilon ) + 
+					  e.yxy*map_{{sdf.name}}( pos + e.yxy*_stopEpsilon ) + 
+					  e.xxx*map_{{sdf.name}}( pos + e.xxx*_stopEpsilon ) );
 }
 {% endfor %}
 
@@ -57,7 +64,7 @@ vec4 mainImage( in vec2 fragCoord )
     for( uint i=0u; i<_maxSteps; i++ )
     {
         pos = p0 + t*cam_norm;
-        h = map_{{sdf.prefix}}(pos);
+        h = map_{{sdf.name}}(pos);
         t += h * 0.33;
         if (t>closest_dist) break;
         if( abs(h)<_stopEpsilon ) {
@@ -76,7 +83,7 @@ vec4 mainImage( in vec2 fragCoord )
                 break;
             {% for sdf in sdfs %}
             case {{loop.index0}}:
-                nor = calcNormal_{{sdf.prefix}}(p0 + closest_dist*cam_norm);
+                nor = calcNormal_{{sdf.name}}(p0 + closest_dist*cam_norm);
                 break;
             {% endfor %}   
         }
@@ -88,6 +95,8 @@ vec4 mainImage( in vec2 fragCoord )
         if (_mode == 0u) {
             float dif = clamp( dot(nor,vec3(0.57703)), 0.0, 1.0 ) * 0.2;
             float amb = 1.4 + 0.3*dot(nor,vec3(0.0,1.0,0.0));
+            // color.xyz = vec3(0.2,0.3,0.4)*amb + vec3(0.8,0.7,0.5)*dif;
+            // color.xyz = vec3(0.2,0.3,0.4)*amb + vec3(0.8,0.7,0.5)*dif;
             color.xyz = clamp(sdf_colors[closest_object], 0.1, 0.9) * amb + vec3(0.8,0.7,0.5)*dif*0.2;
         } else if(_mode == 1u) {
             color.xyz = mod(p0 + closest_dist*cam_norm, 1.0);

@@ -14,8 +14,8 @@ from watchdog.observers import Observer
 import pyspacemouse
 
 from topax._utils import rotation_matrix_about_vector, normalize
-from topax._shaders_old import ShaderGLSL, ShaderMode
-from topax.sdfs_old import SDF, empty
+from topax._shaders import ShaderGLSL, ShaderMode
+from topax.sdfs import SDF
 
 @dataclass
 class SDFRegistryEntry:
@@ -29,7 +29,7 @@ def show_part(sdf: SDF, color: ArrayLike):
     return sdf
 
 class SceneHandler:
-    def __init__(self, window):
+    def __init__(self, window, print_code=False):
         self.window = window
         self.fb_width, self.fb_height = glfw.get_framebuffer_size(window)
         self.camera_position = np.array([0.0, -1.0, 0.0])
@@ -37,7 +37,7 @@ class SceneHandler:
         self.looking_at = np.array([0.0, 0.0, 0.0])
         self.fx = 1.0
         self.mode = ShaderMode.AMBIENT
-        self.shader = ShaderGLSL()
+        self.shader = ShaderGLSL(print_code=print_code)
 
     def set_view_front(self):
         self.camera_position = np.array([0.0, -1.0, 0.0]) * np.linalg.norm(self.camera_position)
@@ -134,7 +134,6 @@ class CLI:
         self.observer.start()
 
     def _file_change_event(self, event):
-        print(event)
         if not Path(event.src_path).exists(): return
         if Path(event.src_path).samefile(self.target_path):
             self.sdf_event.set()
@@ -147,6 +146,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--spacemouse", action='store_true', help='enable space mouse interface')
     parser.add_argument("--auto_reload", action='store_true', help='enable auto file reloading')
+    parser.add_argument("--print_code", action='store_true', help='enable printing shader code on recompile')
     parser.add_argument("file", help="python file to read from")
     args = parser.parse_args()
     project_file = Path(args.file)
@@ -171,7 +171,7 @@ def main():
     glfw.make_context_current(window)
 
     # Initialize scene handler
-    scene = SceneHandler(window)
+    scene = SceneHandler(window, args.print_code)
 
     # Initialize callbacks
     mouse_dragging = False
@@ -232,17 +232,17 @@ def main():
                     scene.draw_scene()
                 case glfw.KEY_T:
                     # move view to front
-                    print("setting view to front")
+                    print("setting view to top")
                     scene.set_view_top()
                     scene.draw_scene()
                 case glfw.KEY_L:
                     # move view to front
-                    print("setting view to front")
+                    print("setting view to left")
                     scene.set_view_left()
                     scene.draw_scene()
                 case glfw.KEY_R:
                     # move view to front
-                    print("setting view to front")
+                    print("setting view to right")
                     scene.set_view_right()
                     scene.draw_scene()
 
