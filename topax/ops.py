@@ -201,7 +201,7 @@ class OpTree(OpBase):
                 # elif self.args[0].dtype.base == BaseType.vec3: return vec3(self.args[0].grad(p).x * sign(self.args[0].x), self.args[0].grad(p).y * sign(self.args[0].y))
                 return self.args[0].grad(p) * sign(self.args[0])
             case OpType.VEC2: return vec2(*[a.grad(p) for a in self.args])
-            case OpType.VEC3: return vec3(*[a.gr ad(p) for a in self.args])
+            case OpType.VEC3: return vec3(*[a.grad(p) for a in self.args])
             case OpType.X: return self.args[0].grad(p).x
             case OpType.Y: return self.args[0].grad(p).y
             case OpType.Z: return self.args[0].grad(p).z
@@ -240,7 +240,7 @@ def sub(lhs: OpBase, rhs: OpBase):
 
 @wrap_const
 def mul(lhs: OpBase, rhs: OpBase):
-    if lhs.dtype.base in {BaseType.mat2, BaseType.mat3, BaseType.mat4} and rhs.dtype in {BaseType.vec2, BaseType.vec3, BaseType.vec4}:
+    if lhs.dtype.base in {BaseType.mat2, BaseType.mat3, BaseType.mat4} and rhs.dtype.base in {BaseType.vec2, BaseType.vec3, BaseType.vec4}:
         # this is a matrix multiplication
         assert lhs.dtype.length is None and rhs.dtype.length is None
         dtype = rhs.dtype
@@ -266,7 +266,7 @@ def norm(lhs: OpBase):
 @wrap_const
 def dot(lhs: OpBase, rhs: OpBase):
     dtype = DType(BaseType.float)
-    return OpTree(dtype, OpType.LEN, args=(lhs, rhs))
+    return OpTree(dtype, OpType.DOT, args=(lhs, rhs))
 
 @wrap_const
 def square(lhs: OpBase):

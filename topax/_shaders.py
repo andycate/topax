@@ -227,13 +227,12 @@ class ShaderSDF:
 
         self.map_func = self.generate_map_func(tape, ttl)
 
-        self.grad_tree = self.tree.grad(p)
-        in_count, consumer_nodes, leaves = ShaderSDF._traverse(self.grad_tree)
-        tape = ShaderSDF._make_tape(in_count, consumer_nodes, leaves)
-        ttl = ShaderSDF._local_vars_ttl(tape)
+        # self.grad_tree = self.tree.grad(p)
+        # in_count, consumer_nodes, leaves = ShaderSDF._traverse(self.grad_tree)
+        # tape = ShaderSDF._make_tape(in_count, consumer_nodes, leaves)
+        # ttl = ShaderSDF._local_vars_ttl(tape)
 
-        self.map_grad_func = self.generate_map_func(tape, ttl)
-        pass
+        # self.map_grad_func = self.generate_map_func(tape, ttl)
 
     def update_sdf(self, new_sdf):
         p = ops.param(DType(BaseType.vec3), '_p', None)
@@ -346,9 +345,13 @@ class ShaderSDF:
             case ops.OpType.SIN: return f"sin({args[0]})"
             case ops.OpType.COS: return f"cos({args[0]})"
             case ops.OpType.TAN: return f"tan({args[0]})"
+            case ops.OpType.ASIN: return f"asin({args[0]})"
+            case ops.OpType.ACOS: return f"acos({args[0]})"
+            case ops.OpType.ATAN: return f"atan({args[0]},{args[1]})"
             case ops.OpType.MIN: return f"min({args[0]},{args[1]})"
             case ops.OpType.MAX: return f"max({args[0]},{args[1]})"
             case ops.OpType.ABS: return f"abs({args[0]})"
+            case ops.OpType.EXP2: return f"exp2({args[0]})"
             case ops.OpType.SIGN: return f"sign({args[0]})"
             case ops.OpType.VEC2: return f"vec2({",".join(args)})"
             case ops.OpType.VEC3: return f"vec3({",".join(args)})"

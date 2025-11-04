@@ -32,13 +32,13 @@ class SDF:
         if s not in self._sdfs: self._sdfs.add(s)
         return s
     
-    def add_param(self, p):
+    def add_param(self, p, dtype=None):
         self._initialized = False
         if not hasattr(self, '_explicit_params'): self._explicit_params = OrderedSet()
         if not hasattr(self, '_new_implicit_params'): self._new_implicit_params = []
         if isinstance(p, ops.const) or isinstance(p, ops.OpTree): raise TypeError(f'new param value must not be const or OpTree')
         if not isinstance(p, ops.param):
-            p = ops.param(None, None, p, implicit=True)
+            p = ops.param(dtype, None, p, implicit=True)
             self._new_implicit_params.append(p)
         else:
             assert not p.implicit, "Implicit params shouldn't be passed explicitly"
@@ -60,6 +60,10 @@ class SDF:
     # def r(self, axis: str | ops.param, angle: ops.param):
     #     """Alias for rotate operation"""
     #     return rotate(self, axis, angle)
+
+    def s(self, amount: float): return scale(self, amount)
+    def o(self, amount: float): return offset(self, amount)
+    def i(self, other): return intersect(self, other)
 
 class translate(SDF):
     def __init__(self, sdf: SDF, offset: ops.param=None, x: ops.param=None, y: ops.param=None, z: ops.param=None):
@@ -132,42 +136,48 @@ class union(SDF):
             accum = ops.min(accum, self.sdfs[i](p))
         return accum
     
-# class intersect(SDF):
-#     def __init__(self, *sdfs: SDF):
-#         self.add_sdfs(*sdfs)
-#         self.sdfs = sdfs
+class intersect(SDF):
+    def __init__(self, *sdfs: SDF):
+        sdfs_added = []
+        for sdf in sdfs:
+            sdfs_added.append(self.add_sdf(sdf))
+        self.sdfs = sdfs_added
+        super().__init__()
 
-#     def sdf_definition(self, p):
-#         if len(self.sdfs) == 1:
-#             return self.sdfs[0](p)
-#         return ops.max(*[sdf(p) for sdf in self.sdfs])
+    def opdef(self, p):
+        if len(self.sdfs) == 1:
+            return self.sdfs[0](p)
+        result = ops.max(self.sdfs[0](p), self.sdfs[1](p))
+        for i in range(2, len(self.sdfs)):
+            result = ops.max(result, self.sdfs[i](p))
+        return result
     
-# class subtract(SDF):
-#     def __init__(self, sdf: SDF, tool: SDF):
-#         self.add_sdfs(sdf, tool)
-#         self.sdf = sdf
-#         self.tool = tool
+class subtract(SDF):
+    def __init__(self, sdf: SDF, tool: SDF):
+        self.sdf = self.add_sdf(sdf)
+        self.tool = self.add_sdf(tool)
+        super().__init__()
 
-#     def sdf_definition(self, p):
-#         return ops.max(self.sdf(p), -self.tool(p))
+    def opdef(self, p):
+        return ops.max(self.sdf(p), -self.tool(p))
     
-# class scale(SDF):
-#     def __init__(self, sdf: SDF, amount: float):
-#         self.add_sdfs(sdf)
-#         self.add_input('amount', amount, DType.float)
-#         self.sdf = sdf
+class scale(SDF):
+    def __init__(self, sdf: SDF, amount: float):
+        self.amount = self.add_param(amount)
+        self.sdf = self.add_sdf(sdf)
+        super().__init__()
 
-#     def sdf_definition(self, p):
-#         return self.sdf(p / self.amount) * self.amount
+    def opdef(self, p):
+        return self.sdf(p / self.amount) * self.amount
     
-# class offset(SDF):
-#     def __init__(self, sdf: SDF, amount: float):
-#         self.add_sdfs(sdf)
-#         self.add_input('amount', amount, DType.float)
-#         self.sdf = sdf
+class offset(SDF):
+    def __init__(self, sdf: SDF, amount: float):
+        self.amount = self.add_param(amount)
+        self.sdf = self.add_sdf(sdf)
+        super().__init__()
 
-#     def sdf_definition(self, p):
-#         return self.sdf(p) - self.amount
+    def opdef(self, p):
+        return self.sdf(p) - self.amount
     
 # class tlp(SDF):
 #     """Truncated Linear Pattern"""

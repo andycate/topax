@@ -26,7 +26,13 @@ float map_{{sdf.prefix}}(in vec3 _p)
 
 vec3 calcNormal_{{sdf.prefix}}( in vec3 _p )
 {
-{{sdf.map_grad_func}}
+// {{sdf.map_grad_func}}
+vec2 e = vec2(1.0,-1.0);
+// const float eps = 0.0005;
+return normalize( e.xyy*map_{{sdf.prefix}}( _p + e.xyy*_stopEpsilon ) + 
+                    e.yyx*map_{{sdf.prefix}}( _p + e.yyx*_stopEpsilon ) + 
+                    e.yxy*map_{{sdf.prefix}}( _p + e.yxy*_stopEpsilon ) + 
+                    e.xxx*map_{{sdf.prefix}}( _p + e.xxx*_stopEpsilon ) );
 }
 {% endfor %}
 
