@@ -1,0 +1,65 @@
+#version 330 core
+
+out vec4 fragColor;
+
+uniform vec2 _iResolution;
+uniform uint _maxSteps;
+uniform vec3 _camPose;
+uniform vec3 _lookingAt;
+uniform vec3 _camUp;
+uniform float _fx;
+uniform float _stopEpsilon;
+uniform float _tmax;
+uniform uint _mode;
+
+uniform vec3 sdf_colors[{{sdfs|length}}];
+
+{% for g in global_uniforms -%}
+uniform {{g.dtype.base.name}} {{g.name}};
+{% endfor %}
+
+{% for sdf in sdfs %}
+float map_{{sdf.prefix}}(in vec2 _p)
+{
+{{sdf.map_func}}
+}
+{% endfor %}
+
+vec4 mainImage( in vec2 fragCoord )
+{
+    float fy = (_fx / _iResolution.x) * _iResolution.y;
+    vec2 p0 = (fragCoord / _iResolution) - 0.5;
+    p0.x = p0.x * _fx;
+    p0.y = p0.y * fy;
+
+
+    // raymarch
+    int closest_object = -1;
+    float inner_dist = uintBitsToFloat(0x7F800000u);
+    float closest_dist = uintBitsToFloat(0x7F800000u);
+    {% for sdf in sdfs %}
+    float curr_dist = map_{{sdf.prefix}}(p0);
+    if (curr_dist < closest_dist) closest_dist = curr_dist;
+    if (curr_dist < 0.0) {
+        closest_object = {{loop.index0}};
+        inner_dist = curr_dist;
+    }
+    {% endfor %}
+
+    vec4 color = vec4(0.0);
+    color.w = 1.0;
+    if( closest_object != -1 ) {
+        color.xyz = sdf_colors[closest_object];
+        if (abs(round(inner_dist / 0.05) * 0.05 - inner_dist) < 0.002) color.xyz *= 0.8;
+    } else {
+        color.xyz = vec3(0.6, 0.5, 0.1);
+        if (abs(round(closest_dist / 0.05) * 0.05 - closest_dist) < 0.002) color.xyz *= 0.8;
+    }
+    if (abs(inner_dist) < 0.002 || abs(closest_dist) < 0.002) color.xyz = vec3(0.0);
+
+    return color;
+}
+
+void main() {
+    fragColor = mainImage(gl_FragCoord.xy);
+}

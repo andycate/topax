@@ -359,6 +359,11 @@ def clamp(arg: OpBase, lower: OpBase, upper: OpBase):
     return OpTree(dtype, OpType.CLAMP, args=(arg, lower, upper))
 
 @wrap_const
+def round(arg: OpBase):
+    dtype = arg.dtype
+    return OpTree(dtype, OpType.ROUND, args=(arg,))
+
+@wrap_const
 def sign(arg: OpBase):
     return OpTree(arg.dtype, OpType.SIGN, args=(arg,))
 

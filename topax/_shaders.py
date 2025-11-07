@@ -73,7 +73,8 @@ void main() {
     FragColor = texture(cubeTexture, vTexCoord);
 }
 """
-    template = jinja2.Environment(loader=jinja2.PackageLoader('topax')).get_template('shader.glsl.j2')
+    template_3d = jinja2.Environment(loader=jinja2.PackageLoader('topax')).get_template('shader_3d.glsl.j2')
+    template_2d = jinja2.Environment(loader=jinja2.PackageLoader('topax')).get_template('shader_2d.glsl.j2')
     def __init__(self, print_code=False):
         self.print_code = print_code
         self.program_id = None
@@ -142,6 +143,8 @@ void main() {
         colors = np.atleast_2d(colors).astype(np.float32)
         assert colors.shape[1] == 3
         assert colors.shape[0] == len(sdfs)
+        assert all([s.is_2d for s in sdfs]) or all([not s.is_2d for s in sdfs])
+        self.is_2d_mode = all([s.is_2d for s in sdfs])
         if self.program_id: gl.glUseProgram(self.program_id)
 
         recompile = False
@@ -164,10 +167,16 @@ void main() {
 
         if recompile:
             print("Recompiling shader...")
-            code = ShaderGLSL.template.render(
-                global_uniforms=self.global_uniforms,
-                sdfs=self.sdf_shaders,
-            )
+            if self.is_2d_mode:
+                code = ShaderGLSL.template_2d.render(
+                    global_uniforms=self.global_uniforms,
+                    sdfs=self.sdf_shaders,
+                )
+            else:
+                code = ShaderGLSL.template_3d.render(
+                    global_uniforms=self.global_uniforms,
+                    sdfs=self.sdf_shaders,
+                )
             if self.print_code: print(code)
             vs = compile_shader(ShaderGLSL.VERTEX_SHADER_SRC, gl.GL_VERTEX_SHADER)
             fs = compile_shader(code, gl.GL_FRAGMENT_SHADER)
@@ -219,7 +228,10 @@ class ShaderSDF:
         self.sdf = sdf
         self.prefix = prefix
         
-        p = ops.param(DType(BaseType.vec3), '_p', None)
+        if self.sdf.is_2d:
+            p = ops.param(DType(BaseType.vec2), '_p', None)
+        else:
+            p = ops.param(DType(BaseType.vec3), '_p', None)
         self.tree = self.sdf(p)
         in_count, consumer_nodes, leaves = ShaderSDF._traverse(self.tree)
         tape = ShaderSDF._make_tape(in_count, consumer_nodes, leaves)
@@ -235,7 +247,10 @@ class ShaderSDF:
         # self.map_grad_func = self.generate_map_func(tape, ttl)
 
     def update_sdf(self, new_sdf):
-        p = ops.param(DType(BaseType.vec3), '_p', None)
+        if new_sdf.is_2d:
+            p = ops.param(DType(BaseType.vec2), '_p', None)
+        else:
+            p = ops.param(DType(BaseType.vec3), '_p', None)
         tree = new_sdf(p)
         if hash(tree) != hash(self.tree):
             return True
@@ -351,11 +366,20 @@ class ShaderSDF:
             case ops.OpType.MIN: return f"min({args[0]},{args[1]})"
             case ops.OpType.MAX: return f"max({args[0]},{args[1]})"
             case ops.OpType.ABS: return f"abs({args[0]})"
+            case ops.OpType.EXP: return f"exp({args[0]})"
             case ops.OpType.EXP2: return f"exp2({args[0]})"
+            case ops.OpType.LOG: return f"log({args[0]})"
+            case ops.OpType.LOG2: return f"log2({args[0]})"
+            case ops.OpType.MOD: return f"mod({args[0]})"
+            case ops.OpType.CLAMP: return f"clamp({args[0]},{args[1]},{args[2]})"
+            case ops.OpType.ROUND: return f"round({args[0]})"
             case ops.OpType.SIGN: return f"sign({args[0]})"
             case ops.OpType.VEC2: return f"vec2({",".join(args)})"
             case ops.OpType.VEC3: return f"vec3({",".join(args)})"
             case ops.OpType.VEC4: return f"vec4({",".join(args)})"
+            case ops.OpType.MAT2: return f"mat2({",".join(args)})"
+            case ops.OpType.MAT3: return f"mat3({",".join(args)})"
+            case ops.OpType.MAT4: return f"mat4({",".join(args)})"
             case ops.OpType.X: return f"({args[0]}).x"
             case ops.OpType.Y: return f"({args[0]}).y"
             case ops.OpType.Z: return f"({args[0]}).z"

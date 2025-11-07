@@ -24,7 +24,7 @@ float map_{{sdf.prefix}}(in vec3 _p)
 {{sdf.map_func}}
 }
 
-vec3 calcNormal_{{sdf.prefix}}( in vec3 _p )
+{# vec3 calcNormal_{{sdf.prefix}}( in vec3 _p )
 {
 // {{sdf.map_grad_func}}
 vec2 e = vec2(1.0,-1.0);
@@ -33,6 +33,14 @@ return normalize( e.xyy*map_{{sdf.prefix}}( _p + e.xyy*_stopEpsilon ) +
                     e.yyx*map_{{sdf.prefix}}( _p + e.yyx*_stopEpsilon ) + 
                     e.yxy*map_{{sdf.prefix}}( _p + e.yxy*_stopEpsilon ) + 
                     e.xxx*map_{{sdf.prefix}}( _p + e.xxx*_stopEpsilon ) );
+} #}
+vec3 calcNormal_{{sdf.prefix}}( in vec3 _p )
+{
+vec2 e = vec2(_stopEpsilon,0.0);
+float dx = map_{{sdf.prefix}}(_p + e.xyy) - map_{{sdf.prefix}}(_p - e.xyy);
+float dy = map_{{sdf.prefix}}(_p + e.yxy) - map_{{sdf.prefix}}(_p - e.yxy);
+float dz = map_{{sdf.prefix}}(_p + e.yyx) - map_{{sdf.prefix}}(_p - e.yyx);
+return normalize(vec3(dx, dy, dz));
 }
 {% endfor %}
 

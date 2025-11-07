@@ -2,12 +2,14 @@ from functools import wraps
 import inspect
 from abc import abstractmethod
 from ordered_set import OrderedSet
+import numpy as np
 from numpy.typing import ArrayLike
 
 import topax.ops as ops
 
 
 class SDF:
+    IS_2D = None
     def __init__(self):
         self._implicit_params = []
         if not hasattr(self, '_explicit_params'): self._explicit_params = OrderedSet()
@@ -24,6 +26,7 @@ class SDF:
                 p._update_name(f'_implicit_param_{len(self._implicit_params)}')
                 self._implicit_params.append(p)
 
+        if not hasattr(self, '_sdfs'): self._sdfs = OrderedSet()
         self._initialized = True
 
     def add_sdf(self, s):
@@ -49,6 +52,12 @@ class SDF:
     def opdef(self, p: ops.OpBase) -> ops.OpBase:
         raise NotImplementedError()
     
+    @property
+    def is_2d(self):
+        assert self._initialized
+        if self.IS_2D: return True
+        else: return any([s.is_2d for s in self._sdfs])
+    
     def __call__(self, p: ops.OpBase) -> ops.OpBase:
         if hasattr(self, '_initialized') and not self._initialized: raise ValueError('super().__init__() function must be called!')
         return self.opdef(p)
@@ -57,6 +66,10 @@ class SDF:
         """Alias for translate operation"""
         return translate(self, offset, x, y, z)
     
+    def r(self, angle: ops.param, axis: str = 'x'):
+        """Alias for translate operation"""
+        return rotate(self, angle=angle, axis=axis)
+    
     # def r(self, axis: str | ops.param, angle: ops.param):
     #     """Alias for rotate operation"""
     #     return rotate(self, axis, angle)
@@ -64,6 +77,8 @@ class SDF:
     def s(self, amount: float): return scale(self, amount)
     def o(self, amount: float): return offset(self, amount)
     def i(self, other): return intersect(self, other)
+    def u(self, other): return union(self, other)
+    def sub(self, other): return subtract(self, other)
 
 class translate(SDF):
     def __init__(self, sdf: SDF, offset: ops.param=None, x: ops.param=None, y: ops.param=None, z: ops.param=None):
@@ -81,45 +96,59 @@ class translate(SDF):
         if hasattr(self, 'offset'):
             return self.sdf(p - self.offset)
         else:
-            offset = ops.vec3(
-                self.x if hasattr(self, 'x') else 0.0, 
-                self.y if hasattr(self, 'y') else 0.0,
-                self.z if hasattr(self, 'z') else 0.0,
-            )
+            if self.sdf.is_2d:
+                offset = ops.vec2(
+                    self.x if hasattr(self, 'x') else 0.0, 
+                    self.y if hasattr(self, 'y') else 0.0,
+                )
+            else:
+                offset = ops.vec3(
+                    self.x if hasattr(self, 'x') else 0.0, 
+                    self.y if hasattr(self, 'y') else 0.0,
+                    self.z if hasattr(self, 'z') else 0.0,
+                )
             return self.sdf(p - offset)
         
-# class rotate(SDF):
-#     def __init__(self, sdf: SDF, axis: str, angle: float):
-#         self.add_sdfs(sdf)
-#         self.axis = axis
-#         self.add_input('angle', np.deg2rad(angle), DType.float)
-#         self.sdf = sdf
+class rotate(SDF):
+    def __init__(self, sdf: SDF, angle: float, axis: str='x'):
+        self.sdf = self.add_sdf(sdf)
+        self.axis = axis
+        self.angle = self.add_param(np.deg2rad(angle))
+        super().__init__()
 
-#     def sdf_definition(self, p):
-#         s, c = ops.sin(self.angle), ops.cos(self.angle)
-#         match self.axis:
-#             case 'x':
-#                 rot = [
-#                     [1., 0., 0.], 
-#                     [0., c, -s], 
-#                     [0., s, c]
-#                 ]
-#             case 'y':
-#                 rot = [
-#                     [c, 0., s], 
-#                     [0., 1., 0.], 
-#                     [-s, 0., c]
-#                 ]
-#             case 'z':
-#                 rot = [
-#                     [c, -s, 0.], 
-#                     [s, c, 0.], 
-#                     [0., 0., 1.]
-#                 ]
-#             case _:
-#                 raise ValueError(f"Axis must be 'x' 'y' or 'z', not {self.axis}")
-#         p = ops.mat3(rot) * p
-#         return self.sdf(p)
+    def opdef(self, p):
+        s, c = ops.sin(self.angle), ops.cos(self.angle)
+        if self.is_2d:
+            rot = [
+                c, s, 
+                -s, c
+            ]
+            p = ops.mat2(*rot) * p
+            return self.sdf(p)
+        else:
+            match self.axis:
+                case 'x':
+                    rot = [
+                        1., 0., 0., 
+                        0., c, s, 
+                        0., -s, c
+                    ]
+                case 'y':
+                    rot = [
+                        c, 0., -s, 
+                        0., 1., 0., 
+                        s, 0., c
+                    ]
+                case 'z':
+                    rot = [
+                        c, s, 0., 
+                        -s, c, 0., 
+                        0., 0., 1.
+                    ]
+                case _:
+                    raise ValueError(f"Axis must be 'x' 'y' or 'z', not {self.axis}")
+            p = ops.mat3(*rot) * p
+            return self.sdf(p)
 
 class union(SDF):
     def __init__(self, *sdfs: SDF):
@@ -179,17 +208,29 @@ class offset(SDF):
     def opdef(self, p):
         return self.sdf(p) - self.amount
     
-# class tlp(SDF):
-#     """Truncated Linear Pattern"""
-#     def __init__(self, sdf: SDF, spacing, nrep, sym=True):
-#         self.add_sdfs(sdf)
-#         self.add_input('spacing', spacing, DType.vec3)
-#         self.add_input('nrep', nrep, DType.vec3)
-#         self.sdf = sdf
-    
-#     def sdf_definition(self, p: Op) -> Op:
-#         q = p - self.spacing * ops.clamp(ops.round(p / self.spacing), -self.nrep, self.nrep)
-#         return self.sdf(q)
+class tlp(SDF):
+    """Truncated Linear Pattern"""
+    def __init__(self, sdf: SDF, spacing, n_repeats, axis='x'):
+        self.sdf = self.add_sdf(sdf)
+        self.spacing = self.add_param(spacing)
+        self.n_repeats = self.add_param(n_repeats)
+        self.axis = axis
+        assert axis in {'x', 'y', 'z'}
+        super().__init__()
+
+    def opdef(self, p: ops.OpBase):
+        if self.axis == 'x':
+            q = p.x - self.spacing * ops.clamp(ops.round(p.x / self.spacing), -self.n_repeats, self.n_repeats)
+            if self.is_2d: p = ops.vec2(q, p.y)
+            else: p = ops.vec3(q, p.yz)
+        elif self.axis == 'y':
+            q = p.y - self.spacing * ops.clamp(ops.round(p.y / self.spacing), -self.n_repeats, self.n_repeats)
+            if self.is_2d: p = ops.vec2(p.x, q)
+            else: p = ops.vec3(p.x, q, p.z)
+        elif self.axis == 'z':
+            q = p.z - self.spacing * ops.clamp(ops.round(p.z / self.spacing), -self.n_repeats, self.n_repeats)
+            p = ops.vec3(p.xy, q)
+        return self.sdf(p)
     
 # class cp(SDF):
 #     """Simple Circular Pattern"""
@@ -209,6 +250,16 @@ class offset(SDF):
 #         tx = ops.cos(theta_prime) * r
 #         q = ops.vec3(tx - self.r, ty, z)
 #         return self.sdf(q)
+
+class slice_2d(SDF):
+    IS_2D = True
+    def __init__(self, sdf: SDF, z: float=0.0):
+        self.z_value = self.add_param(z)
+        self.sdf = self.add_sdf(sdf)
+        super().__init__()
+
+    def opdef(self, p):
+        return self.sdf(ops.vec3(p, self.z_value))
 
 class sphere(SDF):
     def __init__(self, radius: ops.param | float):
@@ -275,3 +326,31 @@ class gyroid(SDF):
             )
         ) * self.thickness - self.fill
         return gyroid
+    
+class circle(SDF):
+    IS_2D = True
+    def __init__(
+        self,
+        radius: ops.param | float,
+    ):
+        self.radius = self.add_param(radius)
+        super().__init__()
+
+    def opdef(self, p):
+        return ops.length(p) - self.radius
+
+class rectangle(SDF):
+    IS_2D = True
+    def __init__(
+        self,
+        x: ops.param | float,
+        y: ops.param | float = None,
+    ):
+        self.x_length = self.add_param(x)
+        if y is not None: self.y_length = self.add_param(y)
+        super().__init__()
+
+    def opdef(self, p):
+        if hasattr(self, 'y_length'): q = ops.abs(p) - ops.vec2(self.x_length, self.y_length)
+        else: q = ops.abs(p) - self.x_length
+        return ops.length(ops.max(q, 0.0)) + ops.min(ops.max(q.x, q.y), 0.0)
