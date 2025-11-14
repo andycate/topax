@@ -37,8 +37,9 @@ vec4 mainImage( in vec2 fragCoord )
     int closest_object = -1;
     float inner_dist = uintBitsToFloat(0x7F800000u);
     float closest_dist = uintBitsToFloat(0x7F800000u);
+    float curr_dist;
     {% for sdf in sdfs %}
-    float curr_dist = map_{{sdf.prefix}}(p0);
+    curr_dist = map_{{sdf.prefix}}(p0);
     if (curr_dist < closest_dist) closest_dist = curr_dist;
     if (curr_dist < 0.0) {
         closest_object = {{loop.index0}};
@@ -48,14 +49,25 @@ vec4 mainImage( in vec2 fragCoord )
 
     vec4 color = vec4(0.0);
     color.w = 1.0;
-    if( closest_object != -1 ) {
-        color.xyz = sdf_colors[closest_object];
-        if (abs(round(inner_dist / 0.05) * 0.05 - inner_dist) < 0.002) color.xyz *= 0.8;
+    if (_mode == 0u) {
+        if( closest_object != -1 ) {
+            color.xyz = sdf_colors[closest_object];
+            if (abs(round(inner_dist / 0.006) * 0.006 - inner_dist) < 0.001 * _fx) color.xyz *= 0.8;
+        } else {
+            color.xyz = vec3(0.2, 0.2, 0.2);
+            if (abs(round(closest_dist / 0.006) * 0.006 - closest_dist) < 0.001 * _fx) color.xyz *= 0.8;
+        }
     } else {
-        color.xyz = vec3(0.6, 0.5, 0.1);
-        if (abs(round(closest_dist / 0.05) * 0.05 - closest_dist) < 0.002) color.xyz *= 0.8;
+        if( closest_object != -1 ) {
+            float scaled_color = 1.0/(1.0 + ceil(abs(inner_dist) / 0.06) * 0.06 * 12.0 / _fx);
+            color.xyz = vec3(1.0, scaled_color, scaled_color);
+        } else {
+            float scaled_color = 1.0/(1.0 + ceil(abs(closest_dist) / 0.06) * 0.06 * 12.0 / _fx);
+            color.xyz = vec3(scaled_color, scaled_color, 1.0);
+        }
     }
-    if (abs(inner_dist) < 0.002 || abs(closest_dist) < 0.002) color.xyz = vec3(0.0);
+
+    if (abs(inner_dist) < 0.001 * _fx || abs(closest_dist) < 0.001 * _fx) color.xyz = vec3(0.0);
 
     return color;
 }

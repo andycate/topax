@@ -106,7 +106,7 @@ vec4 mainImage( in vec2 fragCoord )
         } else if(_mode == 1u) {
             color.xyz = mod(p0 + closest_dist*cam_norm, 1.0);
         } else if(_mode == 2u) {
-            color.xyz=vec3(clamp(float(step_i) / 255.0, 0.0, 1.0));
+            color.xyz=vec3(atan(float(step_i) / 12.0 / log(float(_maxSteps)), 1.0)) * sdf_colors[closest_object] * 3.0;
         }
     }
 

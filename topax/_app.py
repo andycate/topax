@@ -4,6 +4,8 @@ import argparse
 from pathlib import Path
 import importlib.util
 from dataclasses import dataclass
+import tkinter as tk
+import multiprocessing as mp
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -140,6 +142,42 @@ class CLI:
             glfw.post_empty_event()
 
 
+def param_process_func(def_q: mp.Queue, update_q: mp.Queue, param_change_event):
+    app = tk.Tk()
+
+    def get_on_change_func(label):
+        def on_change(val):
+            if update_q.empty():
+                update_q.put((label, val))
+                param_change_event.set()
+        return on_change
+
+    label_control_pairs = []
+
+    def process_def_q():
+        nonlocal label_control_pairs, app, def_q
+        if not def_q.empty():
+            param_stack = def_q.get()
+            for lc in label_control_pairs:
+                lc[0].grid_forget()
+                lc[0].destroy()
+                lc[1].grid_forget()
+                lc[1].destroy()
+            label_control_pairs.clear()
+            for i, ps in enumerate(param_stack):
+                label = tk.Label(app, text=ps['label'])
+                label.grid(row=i, column=0, sticky='w', padx=5, pady=2)
+                slider = tk.Scale(app, orient="horizontal", resolution=ps['resolution'], length=200, from_=ps['from'], to=ps['to'], command=get_on_change_func(ps['label']))
+                slider.set(ps['value'])
+                slider.grid(row=i, column=1, sticky='ew', padx=5, pady=2)
+                label_control_pairs.append((label, slider))
+            app.grid_columnconfigure(1, weight=1)
+        app.after(20, process_def_q)
+
+    process_def_q()
+    app.mainloop()
+
+
 def main():
     global _SDF_REGISTRY
     # Parse argments
@@ -173,6 +211,11 @@ def main():
     # Initialize scene handler
     scene = SceneHandler(window, args.print_code)
 
+    param_def_queue = mp.Queue()
+    param_change_queue = mp.Queue()
+    param_change_event = mp.Event()
+    param_process = mp.Process(target=param_process_func, args=(param_def_queue, param_change_queue, param_change_event), daemon=True)
+
     # Initialize callbacks
     mouse_dragging = False
     last_mouse_button = None
@@ -204,14 +247,21 @@ def main():
         scene.fb_width, scene.fb_height = glfw.get_framebuffer_size(window)
         scene.draw_scene()
 
-    def update_target_file():
+    def update_target_file(def_queue: mp.Queue):
         global _SDF_REGISTRY
         nonlocal scene, args
         spec = importlib.util.spec_from_file_location("_external_script", args.file)
         module = importlib.util.module_from_spec(spec)
         _SDF_REGISTRY = []
         spec.loader.exec_module(module)
-        scene.shader.update_sdfs([p.sdf for p in _SDF_REGISTRY], [p.color for p in _SDF_REGISTRY])
+        ext_params = scene.shader.update_sdfs([p.sdf for p in _SDF_REGISTRY], [p.color for p in _SDF_REGISTRY])
+        def_queue.put([{
+            'label': p.name,
+            'resolution': p.resolution,
+            'from': p.vmin,
+            'to': p.vmax,
+            'value': p.value
+        } for p in ext_params])
         scene.draw_scene()
 
     def key_callback(_window, key, _scan, action, _mods):
@@ -224,7 +274,7 @@ def main():
                 case glfw.KEY_U:
                     # reload target file
                     print("updating target file")
-                    update_target_file()
+                    update_target_file(param_def_queue)
                 case glfw.KEY_F:
                     # move view to front
                     print("setting view to front")
@@ -276,7 +326,19 @@ def main():
     if args.auto_reload:
         sdf_reloader_cli = CLI(args.file, sdf_file_change_event)
 
-    update_target_file()
+    param_process.start()
+
+
+    def param_change_listener():
+        while True:
+            param_change_event.wait()
+            param_change_event.clear()
+            glfw.post_empty_event()
+
+    param_change_listener_thread = threading.Thread(target=param_change_listener, daemon=True)
+    param_change_listener_thread.start()
+
+    update_target_file(param_def_queue)
 
     # Main application loop
     while not glfw.window_should_close(window):
@@ -288,7 +350,12 @@ def main():
 
         if sdf_file_change_event.is_set():
             sdf_file_change_event.clear()
-            update_target_file()
+            update_target_file(param_def_queue)
+
+        if not param_change_queue.empty():
+            change = param_change_queue.get()
+            scene.shader.update_explicit_param(change[0], change[1])
+            scene.draw_scene(fast=False)
 
         glfw.wait_events()
 

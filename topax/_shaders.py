@@ -220,6 +220,12 @@ void main() {
                     if u.dtype.length is not None: gl.glUniform1iv(location, u.dtype.length, np.atleast_1d(u.value).astype(np.int32))
                     else: gl.glUniform1i(location, int(u.value))
                 case _: raise TypeError(f"can't set uniform for type {u.dtype}")
+        return OrderedSet([ep for ss in self.sdf_shaders for ep in ss.get_explicit_params()])
+    
+    def update_explicit_param(self, name, value):
+        gl.glUseProgram(self.program_id)
+        location = gl.glGetUniformLocation(self.program_id, name)
+        gl.glUniform1f(location, float(value))
 
 
 class ShaderSDF:
@@ -356,7 +362,12 @@ class ShaderSDF:
             case ops.OpType.MUL: return f"{args[0]} * {args[1]}"
             case ops.OpType.DIV: return f"{args[0]} / {args[1]}"
             case ops.OpType.LEN: return f"length({args[0]})"
+            case ops.OpType.NORM: return f"normalize({args[0]})"
             case ops.OpType.DOT: return f"dot({args[0]},{args[1]})"
+            case ops.OpType.CROSS: return f"cross({args[0]},{args[1]})"
+            case ops.OpType.SQUARE: return f"square({args[0]})"
+            case ops.OpType.SQRT: return f"sqrt({args[0]})"
+            case ops.OpType.POW: return f"pow({args[0]},{args[1]})"
             case ops.OpType.SIN: return f"sin({args[0]})"
             case ops.OpType.COS: return f"cos({args[0]})"
             case ops.OpType.TAN: return f"tan({args[0]})"
@@ -370,9 +381,11 @@ class ShaderSDF:
             case ops.OpType.EXP2: return f"exp2({args[0]})"
             case ops.OpType.LOG: return f"log({args[0]})"
             case ops.OpType.LOG2: return f"log2({args[0]})"
-            case ops.OpType.MOD: return f"mod({args[0]})"
+            case ops.OpType.MOD: return f"mod({args[0]},{args[1]})"
             case ops.OpType.CLAMP: return f"clamp({args[0]},{args[1]},{args[2]})"
             case ops.OpType.ROUND: return f"round({args[0]})"
+            case ops.OpType.FLOOR: return f"floor({args[0]})"
+            case ops.OpType.CEIL: return f"ceil({args[0]})"
             case ops.OpType.SIGN: return f"sign({args[0]})"
             case ops.OpType.VEC2: return f"vec2({",".join(args)})"
             case ops.OpType.VEC3: return f"vec3({",".join(args)})"

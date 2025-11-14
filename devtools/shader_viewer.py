@@ -86,6 +86,7 @@ class AppState:
     last_mouse_button = 0
     mouse_dragging = False
     shader_mode = ShaderMode.AMBIENT
+    slow_rotate = False
 
 @dataclass
 class ShaderUniforms:
@@ -212,6 +213,7 @@ def draw_scene(fast=False):
     global window, state, uniforms
     gl.glViewport(0, 0, state.fb_width, state.fb_height)
     gl.glClearColor(0.2, 0.2, 0.2, 1.0)
+    # gl.glClearColor(1.0, 1.0, 1.0, 1.0)
     gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
 
     gl.glEnable(gl.GL_BLEND)
@@ -225,8 +227,8 @@ def draw_scene(fast=False):
     gl.glUniform3f(uniforms.looking_at, * state.looking_at)
     gl.glUniform3f(uniforms.cam_up, * state.camera_up)
     gl.glUniform1f(uniforms.fx, state.fx)
-    gl.glUniform1f(uniforms.stop_epsilon, 0.01)
-    gl.glUniform1f(uniforms.tmax, 30.0)
+    gl.glUniform1f(uniforms.stop_epsilon, 0.001)
+    gl.glUniform1f(uniforms.tmax, 60.0)
     gl.glUniform1ui(uniforms.mode, state.shader_mode)
 
     gl.glBindVertexArray(state.vao)
@@ -284,9 +286,13 @@ def window_resize_callback(win, width, height):
 
 def key_callback(_window, key, _scan, action, _mods):
     global state
-    if action == glfw.PRESS and key == glfw.KEY_M:
-        state.shader_mode = (state.shader_mode + 1) % len(ShaderMode)
-        draw_scene()
+    if action == glfw.PRESS:
+        match key:
+            case glfw.KEY_M:
+                state.shader_mode = (state.shader_mode + 1) % len(ShaderMode)
+                draw_scene()
+            case glfw.KEY_S:
+                state.slow_rotate = not state.slow_rotate
 
 def main():
     global window, state, uniforms
@@ -370,7 +376,14 @@ def main():
 
     # run the event loop
     while not glfw.window_should_close(window):
-        glfw.wait_events()
+        if state.slow_rotate:
+            dx = 1.0
+            x_rot = rotation_matrix_about_vector(-dx / 300.0, state.camera_up)
+            state.camera_position = x_rot @ state.camera_position
+            draw_scene()
+            glfw.poll_events()
+        else:
+            glfw.wait_events()
 
     glfw.terminate()
 

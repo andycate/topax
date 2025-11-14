@@ -6,6 +6,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 import topax.ops as ops
+from topax.types import DType, BaseType
 
 
 class SDF:
@@ -39,8 +40,11 @@ class SDF:
         self._initialized = False
         if not hasattr(self, '_explicit_params'): self._explicit_params = OrderedSet()
         if not hasattr(self, '_new_implicit_params'): self._new_implicit_params = []
-        if isinstance(p, ops.const) or isinstance(p, ops.OpTree): raise TypeError(f'new param value must not be const or OpTree')
-        if not isinstance(p, ops.param):
+        if isinstance(p, ops.const): raise TypeError(f'new param value must not be const')
+        elif isinstance(p, ops.OpTree):
+            for a in p.args:
+                if not isinstance(a, ops.const): self.add_param(a)
+        elif not isinstance(p, ops.param):
             p = ops.param(dtype, None, p, implicit=True)
             self._new_implicit_params.append(p)
         else:
@@ -55,7 +59,7 @@ class SDF:
     @property
     def is_2d(self):
         assert self._initialized
-        if self.IS_2D: return True
+        if self.IS_2D is not None: return self.IS_2D
         else: return any([s.is_2d for s in self._sdfs])
     
     def __call__(self, p: ops.OpBase) -> ops.OpBase:
@@ -70,6 +74,11 @@ class SDF:
         """Alias for translate operation"""
         return rotate(self, angle=angle, axis=axis)
     
+    def extrude(self, height: ops.param, axis='z', sym: bool=False):
+        """Alias for extrude operation"""
+        assert self.is_2d, "Can only extrude 2D shapes"
+        return extrude(self, height, axis, sym)
+    
     # def r(self, axis: str | ops.param, angle: ops.param):
     #     """Alias for rotate operation"""
     #     return rotate(self, axis, angle)
@@ -79,6 +88,8 @@ class SDF:
     def i(self, other): return intersect(self, other)
     def u(self, other): return union(self, other)
     def sub(self, other): return subtract(self, other)
+    def tlp(self, spacing: float, nrep: float, axis='x', sym=True): return tlp(self, spacing, nrep, axis, sym)
+    def cp(self, nrep: float, axis='x'): return cp(self, nrep, axis)
 
 class translate(SDF):
     def __init__(self, sdf: SDF, offset: ops.param=None, x: ops.param=None, y: ops.param=None, z: ops.param=None):
@@ -113,11 +124,12 @@ class rotate(SDF):
     def __init__(self, sdf: SDF, angle: float, axis: str='x'):
         self.sdf = self.add_sdf(sdf)
         self.axis = axis
-        self.angle = self.add_param(np.deg2rad(angle))
+        self.angle = self.add_param(angle)
         super().__init__()
 
     def opdef(self, p):
-        s, c = ops.sin(self.angle), ops.cos(self.angle)
+        angle = self.angle * (np.pi / 180.)
+        s, c = ops.sin(angle), ops.cos(angle)
         if self.is_2d:
             rot = [
                 c, s, 
@@ -210,56 +222,136 @@ class offset(SDF):
     
 class tlp(SDF):
     """Truncated Linear Pattern"""
-    def __init__(self, sdf: SDF, spacing, n_repeats, axis='x'):
+    def __init__(self, sdf: SDF, spacing, n_repeats, axis='x', sym=True):
         self.sdf = self.add_sdf(sdf)
         self.spacing = self.add_param(spacing)
         self.n_repeats = self.add_param(n_repeats)
         self.axis = axis
+        self.is_sym = sym
         assert axis in {'x', 'y', 'z'}
         super().__init__()
 
     def opdef(self, p: ops.OpBase):
+        nrep = (self.n_repeats-1.)
         if self.axis == 'x':
-            q = p.x - self.spacing * ops.clamp(ops.round(p.x / self.spacing), -self.n_repeats, self.n_repeats)
+            q = p.x
+            if not self.is_sym: q = q - self.spacing * ops.clamp(ops.round(q / self.spacing), 0., nrep)
+            else: q = q - self.spacing * ops.clamp(ops.round(q / self.spacing), -nrep/2., nrep/2.)
             if self.is_2d: p = ops.vec2(q, p.y)
             else: p = ops.vec3(q, p.yz)
         elif self.axis == 'y':
-            q = p.y - self.spacing * ops.clamp(ops.round(p.y / self.spacing), -self.n_repeats, self.n_repeats)
+            q = p.y
+            if not self.is_sym: q = q - self.spacing * ops.clamp(ops.round(q / self.spacing), 0., nrep)
+            else: q = q - self.spacing * ops.clamp(ops.round(q / self.spacing), -nrep/2., nrep/2.)
             if self.is_2d: p = ops.vec2(p.x, q)
             else: p = ops.vec3(p.x, q, p.z)
         elif self.axis == 'z':
-            q = p.z - self.spacing * ops.clamp(ops.round(p.z / self.spacing), -self.n_repeats, self.n_repeats)
+            q = p.z
+            if not self.is_sym: q = q - self.spacing * ops.clamp(ops.round(q / self.spacing), 0., nrep)
+            else: q = q - self.spacing * ops.clamp(ops.round(q / self.spacing), -nrep/2., nrep/2.)
             p = ops.vec3(p.xy, q)
         return self.sdf(p)
     
-# class cp(SDF):
-#     """Simple Circular Pattern"""
-#     def __init__(self, sdf: SDF, r: float, nrep: float):
-#         self.add_sdfs(sdf)
-#         self.add_input('r', r, DType.float)
-#         self.add_input('nrep', nrep, DType.float)
-#         self.sdf = sdf
+class cp(SDF):
+    """Simple Circular Pattern"""
+    def __init__(self, sdf: SDF, nrep: float, axis='x'):
+        self.sdf = self.add_sdf(sdf)
+        self.nrep = self.add_param(nrep, DType(BaseType.float))
+        self.axis = axis
+        super().__init__()
     
-#     def sdf_definition(self, p: Op) -> Op:
-#         theta = ops.atan(p.y, p.x) # -np.pi to np.pi
-#         r = ops.length(p.xy)
-#         z = p.z
-#         spacing = np.pi / self.nrep
-#         theta_prime = theta - spacing * ops.clamp(ops.round(theta / spacing), -self.nrep, self.nrep)
-#         ty = ops.sin(theta_prime) * r
-#         tx = ops.cos(theta_prime) * r
-#         q = ops.vec3(tx - self.r, ty, z)
-#         return self.sdf(q)
+    def opdef(self, p):
+        if self.sdf.is_2d:
+            theta = ops.atan(p.y, p.x) # -np.pi to np.pi
+            r = ops.length(p.xy)
+            _nrep = self.nrep / 2.0
+            spacing = np.pi / _nrep
+            theta_prime = theta - spacing * ops.clamp(ops.round(theta / spacing), -_nrep, _nrep)
+            ty = ops.sin(theta_prime) * r
+            tx = ops.cos(theta_prime) * r
+            return self.sdf(ops.vec2(tx, ty))
+        if self.axis == 'x':
+            theta = ops.atan(p.z, p.y) # -np.pi to np.pi
+            r = ops.length(p.yz)
+            _nrep = self.nrep / 2.0
+            spacing = np.pi / _nrep
+            theta_prime = theta - spacing * ops.clamp(ops.round(theta / spacing), -_nrep, _nrep)
+            ty = ops.sin(theta_prime) * r
+            tx = ops.cos(theta_prime) * r
+            q = ops.vec3(p.x, tx, ty)
+        elif self.axis == 'y':
+            theta = ops.atan(p.z, p.x) # -np.pi to np.pi
+            r = ops.length(p.xz)
+            _nrep = self.nrep / 2.0
+            spacing = np.pi / _nrep
+            theta_prime = theta - spacing * ops.clamp(ops.round(theta / spacing), -_nrep, _nrep)
+            ty = ops.sin(theta_prime) * r
+            tx = ops.cos(theta_prime) * r
+            q = ops.vec3(tx, p.y, ty)
+        elif self.axis == 'z':
+            theta = ops.atan(p.y, p.x) # -np.pi to np.pi
+            r = ops.length(p.xy)
+            _nrep = self.nrep / 2.0
+            spacing = np.pi / _nrep
+            theta_prime = theta - spacing * ops.clamp(ops.round(theta / spacing), -_nrep, _nrep)
+            ty = ops.sin(theta_prime) * r
+            tx = ops.cos(theta_prime) * r
+            q = ops.vec3(tx, ty, p.z)
+        else: raise ValueError(f"Axis must be 'x' 'y' or 'z', not {self.axis}")
+        return self.sdf(q)
 
 class slice_2d(SDF):
     IS_2D = True
-    def __init__(self, sdf: SDF, z: float=0.0):
-        self.z_value = self.add_param(z)
+    def __init__(self, sdf: SDF, offset: float=0.0, axis: str = 'z'):
+        self.offset = self.add_param(offset)
+        self.axis = axis
         self.sdf = self.add_sdf(sdf)
         super().__init__()
 
     def opdef(self, p):
-        return self.sdf(ops.vec3(p, self.z_value))
+        match self.axis:
+            case 'x': return self.sdf(ops.vec3(self.offset, p))
+            case 'y': return self.sdf(ops.vec3(p.x, self.offset, p.y))
+            case 'z': return self.sdf(ops.vec3(p, self.offset))
+            case _: raise NotImplementedError(f'{self.axis}')
+    
+class extrude(SDF):
+    IS_2D = False
+    def __init__(self, sdf: SDF, height: float=0.0, axis='z', sym=False):
+        assert sdf.is_2d == True
+        assert axis in {'x', 'y', 'z'}
+        self.height = self.add_param(height)
+        self.axis = axis
+        self.sdf = self.add_sdf(sdf)
+        self.is_sym = sym
+        super().__init__()
+
+    def opdef(self, p):
+        if self.axis == 'z':
+            d = self.sdf(p.xy)
+            q = ops.max(ops.vec2(d, ops.abs(p.z-self.height/2.0) - self.height/2.0), 0.0)
+            q = ops.length(q) + ops.min(ops.max(d, ops.abs(p.z-self.height/2.0) - self.height/2.0), 0.0)
+        elif self.axis == 'y':
+            d = self.sdf(p.xz)
+            q = ops.max(ops.vec2(d, ops.abs(p.y-self.height/2.0) - self.height/2.0), 0.0)
+            q = ops.length(q) + ops.min(ops.max(d, ops.abs(p.y-self.height/2.0) - self.height/2.0), 0.0)
+        else:
+            d = self.sdf(p.yz)
+            q = ops.max(ops.vec2(d, ops.abs(p.x-self.height/2.0) - self.height/2.0), 0.0)
+            q = ops.length(q) + ops.min(ops.max(d, ops.abs(p.x-self.height/2.0) - self.height/2.0), 0.0)
+        return q
+
+class taper(SDF):
+    def __init__(self, sdf, rate):
+        self.sdf = self.add_sdf(sdf)
+        self.rate = self.add_param(rate, DType(BaseType.float))
+        super().__init__()
+
+    def opdef(self, p):
+        y_mod = p.y + p.x * self.rate * ops.sign(p.y)
+        if self.sdf.is_2d: q = ops.vec2(p.x, y_mod)
+        else: q = ops.vec3(p.x, y_mod, p.z)
+        return self.sdf(q)
 
 class sphere(SDF):
     def __init__(self, radius: ops.param | float):
@@ -288,7 +380,7 @@ class box(SDF):
         super().__init__()
 
     def opdef(self, p):
-        q = ops.abs(p) - ops.vec3(self.x, self.y, self.z)
+        q = ops.abs(p) - ops.vec3(self.x/2., self.y/2., self.z/2.)
         return ops.length(ops.max(q, 0.0)) + ops.min(ops.max(q.x, ops.max(q.y, q.z)), 0.0)
     
 class cylinder(SDF):
@@ -331,13 +423,16 @@ class circle(SDF):
     IS_2D = True
     def __init__(
         self,
-        radius: ops.param | float,
+        d: ops.param | float=0.0,
+        r: ops.param | float=None,
     ):
-        self.radius = self.add_param(radius)
+        if r is not None: self.radius = self.add_param(r)
+        else: self.diameter = self.add_param(d)
         super().__init__()
 
     def opdef(self, p):
-        return ops.length(p) - self.radius
+        if hasattr(self, 'radius'): return ops.length(p) - self.radius
+        else: return ops.length(p) - self.diameter / 2.0
 
 class rectangle(SDF):
     IS_2D = True
@@ -351,6 +446,130 @@ class rectangle(SDF):
         super().__init__()
 
     def opdef(self, p):
-        if hasattr(self, 'y_length'): q = ops.abs(p) - ops.vec2(self.x_length, self.y_length)
-        else: q = ops.abs(p) - self.x_length
+        if hasattr(self, 'y_length'): q = ops.abs(p) - ops.vec2(self.x_length/2., self.y_length/2.)
+        else: q = ops.abs(p) - self.x_length/2.
         return ops.length(ops.max(q, 0.0)) + ops.min(ops.max(q.x, q.y), 0.0)
+    
+class ngon_2d(SDF):
+    IS_2D = True
+    def __init__(self, sides: float, inscribed_diameter: float=1.0):
+        self.sides = self.add_param(sides, dtype=DType(BaseType.float))
+        self.inscribed_diameter = self.add_param(inscribed_diameter, dtype=DType(BaseType.float))
+        super().__init__()
+    
+    def opdef(self, p):
+        theta = ops.atan(p.x, -p.y)
+        r = ops.length(p)
+        rep_ang = 2.0*np.pi/self.sides
+        theta = theta - ops.round(theta / rep_ang) * rep_ang
+
+        # return ops.min(ops.cos(theta) * r - 0.5, 0.0) + ops.length(ops.vec2(ops.max(ops.max(ops.cos(theta+rep_ang) * r - 0.5, ops.cos(theta-rep_ang) * r - 0.5), 0.0), ops.max(ops.cos(theta) * r - 0.5, 0.0)))
+        return ops.cos(theta) * r - self.inscribed_diameter/2.
+    
+class parabola(SDF):
+    IS_2D = True
+    def __init__(self, k: float):
+        self.k_param = self.add_param(k, dtype=DType(BaseType.float))
+        super().__init__()
+
+    def opdef(self, p):
+        pos = ops.vec2(ops.abs(p.x), p.y)
+        k = self.k_param
+        ik = 1.0/k
+        p = ik*(pos.y - 0.5*ik)/3.0
+        q = 0.25*ik*ik*pos.x
+        h = q*q - p*p*p
+        r1 = ops.pow(q+ops.sqrt(h),1.0/3.0)
+        x1 = r1 + p/r1
+        r2 = ops.sqrt(p)
+        x2 = 2.0*r2*ops.cos(ops.acos(q/(p*r2))/3.0)
+        x = ops.ternary(h>0.0, x1, x2)
+        return ops.length(pos-ops.vec2(x,k*x*x)) * ops.sign(pos.x-x)
+    
+class hyperbola(SDF):
+    IS_2D = True
+    def __init__(self, k: float, he: float):
+        self.k_param = self.add_param(k, dtype=DType(BaseType.float))
+        self.he_param = self.add_param(he, dtype=DType(BaseType.float))
+        super().__init__()
+
+    def opdef(self, p):
+        p = ops.abs(p)
+        p = ops.vec2(p.x-p.y,p.x+p.y)/ops.sqrt(2.0)
+        k = self.k_param
+        he = self.he_param
+
+        x2 = p.x*p.x/16.0
+        y2 = p.y*p.y/16.0
+        r = k*(4.0*k - p.x*p.y)/12.0
+        q = (x2 - y2)*k*k
+        h = q*q + r*r*r
+        m1 = ops.sqrt(-r)
+        u1 = m1*ops.cos( ops.acos(q/(r*m1))/3.0 )
+        m2 = ops.pow(ops.sqrt(h)-q,1.0/3.0)
+        u2 = (m2 - r/m2)/2.0
+        u = ops.ternary(h<0.0, u1, u2)
+        w = ops.sqrt( u + x2 )
+        b = k*p.y - x2*p.x*2.0
+        t = p.x/4.0 - w + ops.sqrt( 2.0*x2 - u + b/w/4.0 )
+        t = ops.max(t,ops.sqrt(he*he*0.5+k)-he/ops.sqrt(2.0))
+        d = ops.length( p-ops.vec2(t,k/t) )
+        return ops.ternary(p.x*p.y < k, d, -d)
+    
+class shell(SDF):
+    def __init__(self, sdf: SDF):
+        self.sdf = self.add_sdf(sdf)
+        super().__init__()
+    
+    def opdef(self, p):
+        return ops.abs(self.sdf(p))
+    
+class twist(SDF):
+    def __init__(self, sdf, units_per_turn = 1.0):
+        self.sdf = self.add_sdf(sdf)
+        self.units_per_turn = self.add_param(units_per_turn)
+        super().__init__()
+
+    def opdef(self, p):
+        r = ops.length(p.xy)
+        theta = ops.atan(p.y, p.x) - p.z * (np.pi * 2.0) / self.units_per_turn
+        q = ops.vec3(ops.cos(theta) * r, ops.sin(theta) * r, p.z)
+        return self.sdf(q)
+    
+class equilateral(SDF):
+    IS_2D = True
+    def __init__(self, diameter):
+        self.diameter = self.add_param(diameter)
+        super().__init__()
+
+    def opdef(self, p):
+        r = self.diameter/2.0
+        k = ops.sqrt(3.0)
+        px = ops.abs(p.x) - r
+        py = p.y + r/k
+        p = ops.ternary(px+k*py>0.0, ops.vec2(px-k*py,-k*px-py)/2.0, ops.vec2(px, py))
+        px = p.x - ops.clamp( p.x, -2.0*r, 0.0 )
+        p = ops.vec2(px, p.y)
+        return -ops.length(p)*ops.sign(p.y)
+    
+# class slice(SDF):
+#     IS_2D = False
+#     def __init__(self, sdf, offset, axis='x'):
+#         self.sdf = self.add_sdf(sdf)
+#         self.offset = self.add_param(offset, dtype=DType(BaseType.float))
+#         self.axis = axis
+#         assert axis in {'x', 'y', 'z'}
+#         super().__init__()
+    
+#     def opdef(self, p):
+#         if self.axis == 'x':
+#             q = p.x - self.offset
+#             return ops.length(ops.vec2(self.sdf(ops.vec3(ops.min(q, 0.0), p.yz)), ops.max(q, 0.0)))
+#         elif self.axis == 'y':
+#             q = p.y - self.offset
+#             return ops.length(ops.vec2(self.sdf(ops.vec3(p.x, ops.min(q, 0.0), p.z)), ops.max(q, 0.0)))
+#         else:
+#             q = p.z - self.offset
+#             s = self.sdf(ops.vec3(p.xy, ops.min(q, 0.0)))
+#             return s + ops.length(ops.vec2(s, ops.max(q, 0.0)))
+

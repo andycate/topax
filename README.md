@@ -18,14 +18,23 @@ you find this interesting and would like to help out.
 For now, this package needs to be installed by cloning the repo. You can
 clone the repo with `git clone https://github.com/andycate/topax.git` and
 then install the package by running `pip install -e .` inside the cloned
-directory.
+directory. Make sure to use a python virtual environment!
+
+NOTE: for the stellarator examples, you will need to have the package `desc-opt` installed.
 
 You can check out the examples in the `examples/` folder by running 
-`topax examples/`. Once the shell has opened up, type 
-`target("<example_file_name>.py")` with one of the example file names
-and the example should appear. Now, try changing some of the parameters
+`topax --auto_reload examples/<file>.py`. Now, try changing some of the parameters
 in that file. When you save the file, you'll notice that the model is 
 instantly updated.
+
+You can add parameters which will appear as sliders which can be adjusted in 
+real time on the second window. Check out the examples to see how it works.
+
+### Keyboard Shortcuts
+- `m`: change lighting mode (cycles between three)
+- `f`: front view
+- `t`: top view
+- `r`: right view
 
 ## The vision + Resources
 Not really sure where I'm going with this project, but I found it interesting

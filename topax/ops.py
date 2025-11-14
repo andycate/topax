@@ -16,45 +16,48 @@ class OpType(Enum):
     LEN = 5
     NORM = 6
     DOT = 7
-    SQUARE = 8
-    SQRT = 9
-    POW = 10
-    SIN = 11
-    COS = 12
-    TAN = 13
-    ASIN = 14
-    ACOS = 15
-    ATAN = 16
-    MIN = 17
-    MAX = 18
-    ABS = 19
-    SUBIDX = 20
-    EXP = 21
-    EXP2 = 22
-    LOG = 23
-    LOG2 = 24
-    MOD = 25
-    CLAMP = 26
-    ROUND = 27
-    SIGN = 28
-    VEC2 = 29
-    VEC3 = 30
-    VEC4 = 31
-    MAT2 = 32
-    MAT3 = 33
-    MAT4 = 34
-    X = 35
-    Y = 36
-    Z = 37
-    W = 38
-    XY = 39
-    XZ = 40
-    YZ = 41
-    YZX = 42
-    ZXY = 43
-    TERNARY = 44
-    LT = 45
-    GT = 46
+    CROSS = 8
+    SQUARE = 9
+    SQRT = 10
+    POW = 11
+    SIN = 12
+    COS = 13
+    TAN = 14
+    ASIN = 15
+    ACOS = 16
+    ATAN = 17
+    MIN = 18
+    MAX = 19
+    ABS = 20
+    SUBIDX = 21
+    EXP = 22
+    EXP2 = 23
+    LOG = 24
+    LOG2 = 25
+    MOD = 26
+    CLAMP = 27
+    ROUND = 28
+    FLOOR = 29
+    CEIL = 30
+    SIGN = 31
+    VEC2 = 32
+    VEC3 = 33
+    VEC4 = 34
+    MAT2 = 35
+    MAT3 = 36
+    MAT4 = 37
+    X = 38
+    Y = 39
+    Z = 40
+    W = 41
+    XY = 42
+    XZ = 43
+    YZ = 44
+    YZX = 45
+    ZXY = 46
+    TERNARY = 47
+    LT = 48
+    GT = 49
 
 @dataclass(frozen=True)
 class OpBase:
@@ -116,6 +119,9 @@ class param(OpBase):
     name: str
     value: Any = field(repr=False, hash=False)
     implicit: bool = False
+    resolution: float = field(repr=False, hash=False, default=-1.)
+    vmin: float = field(repr=False, hash=False, default=0.)
+    vmax: float = field(repr=False, hash=False, default=1.)
 
     def __post_init__(self):
         if self.dtype is None: object.__setattr__(self, 'dtype', types.resolve_dtype(self.value))
@@ -264,6 +270,11 @@ def norm(lhs: OpBase):
     return OpTree(dtype, OpType.NORM, args=(lhs,))
 
 @wrap_const
+def cross(lhs: OpBase, rhs: OpBase):
+    dtype = DType(BaseType.vec3)
+    return OpTree(dtype, OpType.CROSS, args=(lhs, rhs))
+
+@wrap_const
 def dot(lhs: OpBase, rhs: OpBase):
     dtype = DType(BaseType.float)
     return OpTree(dtype, OpType.DOT, args=(lhs, rhs))
@@ -362,6 +373,16 @@ def clamp(arg: OpBase, lower: OpBase, upper: OpBase):
 def round(arg: OpBase):
     dtype = arg.dtype
     return OpTree(dtype, OpType.ROUND, args=(arg,))
+
+@wrap_const
+def floor(arg: OpBase):
+    dtype = arg.dtype
+    return OpTree(dtype, OpType.FLOOR, args=(arg,))
+
+@wrap_const
+def ceil(arg: OpBase):
+    dtype = arg.dtype
+    return OpTree(dtype, OpType.CEIL, args=(arg,))
 
 @wrap_const
 def sign(arg: OpBase):
