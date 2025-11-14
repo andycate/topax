@@ -22,7 +22,7 @@ uniform float _tmax;
 
 const float sdfin_var0 = 1.0;
 const float sdfin_var1 = 0.05;
-const float sdfin_var2 = 5.0;
+const float sdfin_var2 = 10.0;
 
 float map(in vec3 p)
 {
@@ -86,7 +86,7 @@ vec4 mainImage( in vec2 fragCoord )
     {
         pos = p0 + t*cam_norm;
         h = map(pos);
-        if( h<_stopEpsilon || t>_tmax ) break;
+        if( abs(h)<_stopEpsilon || t>_tmax ) break;
         t += h;
     }
     vec4 color = vec4(0.0);
@@ -95,7 +95,7 @@ vec4 mainImage( in vec2 fragCoord )
         vec3 nor = calcNormal(pos);
         float dif = clamp( dot(nor,vec3(0.57703)), 0.0, 1.0 ) * 0.2;
         float amb = 1.4 + 0.3*dot(nor,vec3(0.0,1.0,0.0));
-        color.xyz = clamp(vec3(0.5,0.2,0.1), 0.1, 0.9) * amb + vec3(0.8,0.7,0.5)*dif*0.2;
+        color.xyz = clamp(vec3(0.1,0.2,0.4), 0.1, 0.9) * amb + vec3(0.3,0.6,0.9)*dif*0.8;
     }
 
     return color;

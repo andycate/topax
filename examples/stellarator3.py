@@ -6,7 +6,7 @@ directly represented as an SDF!
 import numpy as np
 import graphviz
 from topax import show_part
-from topax.sdfs import SDF, offset, gyroid, intersect, cylinder, scale
+from topax.sdfs import SDF, offset, gyroid, intersect, cylinder, scale, box
 from topax.ops import OpBase, sin, cos, vec2, vec4, atan, dot, length, exp2
 from topax.types import DType, BaseType
 
@@ -148,7 +148,7 @@ class frzsurface(SDF):
 
 show_part(
     # intersect(offset(frzsurface(eq), 0.1), scale(gyroid(), 0.1)),
-    frzsurface(eq, eq.surface.constant_offset_surface(0.2, grid=LinearGrid(N=eq.N*4+1, M=eq.M*4+1))),#.o(0.1),#.i(gyroid().s(0.05)).o(0.006),
+    frzsurface(eq, eq.surface.constant_offset_surface(0.2, grid=LinearGrid(N=eq.N*4+1, M=eq.M*4+1))).i(gyroid().s(0.1)).u(cylinder(0.5, 1)).u(box(x=2.2, y=0.2, z=0.2)),
     [0.07, 0.3, 0.5]
 )
 

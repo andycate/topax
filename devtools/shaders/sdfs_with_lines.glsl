@@ -11,19 +11,39 @@ uniform float _fx;
 uniform float _stopEpsilon;
 uniform float _tmax;
 
+float map_box(in vec3 p, in float size)
+{
+    vec3 q = abs(p) - size;
+    return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0);
+}
+
 float map(in vec3 p)
 {
-    float s1 = length(p - vec3(-0.2, 0.0, 0.0)) - 0.5;
-    float s2 = length(p - vec3(0.2, 0.0, 0.0)) - 0.5;
+    float s1 = map_box(p - vec3(-0.2, 0.0, 0.0), 0.5);
+    float s2 = map_box(p - vec3(0.2, 0.0, 0.0), 0.3);
     return min(s1, s2);
 }
 
 float map_lines(in vec3 p, in float epsilon)
 {
-    float s1 = length(p - vec3(-0.2, 0.0, 0.0)) - 0.5;
-    float s2 = length(p - vec3(0.2, 0.0, 0.0)) - 0.5;
+    float s1 = map_box(p - vec3(-0.2, 0.0, 0.0), 0.5);
+    float s2 = map_box(p - vec3(0.2, 0.0, 0.0), 0.3);
     return float(abs(s1) <= epsilon && abs(s2) <= epsilon);
 }
+
+// float map(in vec3 p)
+// {
+//     float s1 = length(p - vec3(-0.2, 0.0, 0.0)) - 0.5;
+//     float s2 = length(p - vec3(0.2, 0.0, 0.0)) - 0.5;
+//     return min(s1, s2);
+// }
+
+// float map_lines(in vec3 p, in float epsilon)
+// {
+//     float s1 = length(p - vec3(-0.2, 0.0, 0.0)) - 0.5;
+//     float s2 = length(p - vec3(0.2, 0.0, 0.0)) - 0.5;
+//     return float(abs(s1) <= epsilon && abs(s2) <= epsilon);
+// }
 
 vec3 calcNormal( in vec3 pos )
 {
@@ -60,7 +80,7 @@ vec4 mainImage( in vec2 fragCoord )
     {
         pos = p0 + t*cam_norm;
         h = map(pos);
-        if( h<_stopEpsilon || t>_tmax ) break;
+        if( abs(h)<_stopEpsilon || t>_tmax ) break;
         t += h;
     }
     vec4 color = vec4(0.0);
@@ -70,7 +90,7 @@ vec4 mainImage( in vec2 fragCoord )
         float dif = clamp( dot(nor,vec3(0.57703)), 0.0, 1.0 ) * 0.2;
         float amb = 1.4 + 0.3*dot(nor,vec3(0.0,1.0,0.0));
         color.xyz = vec3(0.2,0.3,0.4)*amb + vec3(0.8,0.7,0.5)*dif;
-        color.xyz *= (1.0 - map_lines(pos, _stopEpsilon * 80.0 * _fx));
+        color.xyz *= (1.0 - map_lines(pos, _stopEpsilon * 4.0));
     }
 
     return color;
