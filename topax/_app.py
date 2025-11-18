@@ -40,6 +40,39 @@ class SceneHandler:
         self.fx = 0.1
         self.mode = ShaderMode.AMBIENT
         self.shader = ShaderGLSL(print_code=print_code)
+        # Separate pan state for 2D and 3D modes
+        self._pan_state_2d = np.array([0.0, 0.0])  # x, y offset for 2D
+        self._pan_state_3d = {
+            'camera_position': np.array([0.0, -1.0, 0.0]),
+            'looking_at': np.array([0.0, 0.0, 0.0])
+        }
+        self._last_is_2d_mode = None
+
+    def _sync_mode_pan_state(self):
+        """Save/restore pan state when switching between 2D and 3D modes"""
+        is_2d = self.shader.is_2d_mode
+        if self._last_is_2d_mode == is_2d:
+            return  # No mode change
+
+        # Save current state before switching
+        if self._last_is_2d_mode is True:
+            # Was in 2D mode, save 2D state
+            self._pan_state_2d = self.looking_at[:2].copy()
+        elif self._last_is_2d_mode is False:
+            # Was in 3D mode, save 3D state
+            self._pan_state_3d['camera_position'] = self.camera_position.copy()
+            self._pan_state_3d['looking_at'] = self.looking_at.copy()
+
+        # Restore state for new mode
+        if is_2d:
+            # Switching to 2D mode
+            self.looking_at = np.array([self._pan_state_2d[0], self._pan_state_2d[1], 0.0])
+        else:
+            # Switching to 3D mode
+            self.camera_position = self._pan_state_3d['camera_position'].copy()
+            self.looking_at = self._pan_state_3d['looking_at'].copy()
+
+        self._last_is_2d_mode = is_2d
 
     def set_view_front(self):
         self.camera_position = np.array([0.0, -1.0, 0.0]) * np.linalg.norm(self.camera_position)
@@ -66,7 +99,13 @@ class SceneHandler:
         delta -= normalize(np.linalg.cross(self.looking_at-self.camera_position, self.camera_up)) * dx / 600. * self.fx
         self.camera_position += delta
         self.looking_at += delta
-        pass
+
+    def pan_2d(self, dx, dy, win_width):
+        """Pan for 2D mode - directly modify x and y of looking_at"""
+        # Scale by fx/win_width so mouse movement matches scene movement
+        # Use window width (not framebuffer) since mouse coords are in window space
+        self.looking_at[0] -= dx * self.fx / win_width
+        self.looking_at[1] += dy * self.fx / win_width
 
     def rotate_2d(self, dx, dy):
         cam_right = normalize(np.linalg.cross(self.looking_at-self.camera_position, self.camera_up))
@@ -252,7 +291,11 @@ def main():
                 dy = ypos - last_pos_y
                 last_pos_x = xpos
                 last_pos_y = ypos
-                scene.pan_xy(dx, dy)
+                if scene.shader.is_2d_mode:
+                    win_width, _ = glfw.get_window_size(window)
+                    scene.pan_2d(dx, dy, win_width)
+                else:
+                    scene.pan_xy(dx, dy)
                 scene.draw_scene(fast=True)
 
     def scroll_callback(win, xoffset, yoffset):
@@ -271,6 +314,7 @@ def main():
         _SDF_REGISTRY = []
         spec.loader.exec_module(module)
         ext_params = scene.shader.update_sdfs([p.sdf for p in _SDF_REGISTRY], [p.color for p in _SDF_REGISTRY])
+        scene._sync_mode_pan_state()
         def_queue.put([{
             'label': p.name,
             'resolution': p.resolution,
