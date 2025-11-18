@@ -37,7 +37,7 @@ class SceneHandler:
         self.camera_position = np.array([0.0, -1.0, 0.0])
         self.camera_up = np.array([0.0, 0.0, 1.0])
         self.looking_at = np.array([0.0, 0.0, 0.0])
-        self.fx = 1.0
+        self.fx = 0.1
         self.mode = ShaderMode.AMBIENT
         self.shader = ShaderGLSL(print_code=print_code)
 
@@ -61,12 +61,20 @@ class SceneHandler:
         self.camera_up = np.array([0.0, 0.0, 1.0])
         self.looking_at = np.array([0.0, 0.0, 0.0])
 
+    def pan_xy(self, dx, dy):
+        delta = self.camera_up * dy / 600. * self.fx
+        delta -= normalize(np.linalg.cross(self.looking_at-self.camera_position, self.camera_up)) * dx / 600. * self.fx
+        self.camera_position += delta
+        self.looking_at += delta
+        pass
+
     def rotate_2d(self, dx, dy):
-        cam_right = normalize(np.linalg.cross(-self.camera_position, self.camera_up))
+        cam_right = normalize(np.linalg.cross(self.looking_at-self.camera_position, self.camera_up))
         x_rot = rotation_matrix_about_vector(-dx / 300., self.camera_up)
         y_rot = rotation_matrix_about_vector(-dy / 300., cam_right)
-        self.camera_position = x_rot @ self.camera_position
-        self.camera_position = y_rot @ self.camera_position
+        _camera_position = x_rot @ (self.camera_position-self.looking_at)
+        _camera_position = y_rot @ _camera_position
+        self.camera_position = _camera_position + self.looking_at
         self.camera_up = y_rot @ self.camera_up
 
     def rotate_rpy(self, roll, pitch, yaw):
@@ -83,7 +91,7 @@ class SceneHandler:
     def zoom(self, delta):
         factor = (1 + delta * 0.008)
         self.fx *= factor
-        self.camera_position *= factor
+        self.camera_position = (self.camera_position-self.looking_at) * factor + self.looking_at
         
 
     def draw_scene(self, fast=False):
@@ -237,6 +245,14 @@ def main():
                 last_pos_x = xpos
                 last_pos_y = ypos
                 scene.rotate_2d(dx, dy)
+                scene.draw_scene(fast=True)
+
+            elif last_mouse_button == glfw.MOUSE_BUTTON_RIGHT:
+                dx = xpos - last_pos_x
+                dy = ypos - last_pos_y
+                last_pos_x = xpos
+                last_pos_y = ypos
+                scene.pan_xy(dx, dy)
                 scene.draw_scene(fast=True)
 
     def scroll_callback(win, xoffset, yoffset):
