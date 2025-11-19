@@ -245,12 +245,12 @@ class ShaderSDF:
 
         self.map_func = self.generate_map_func(tape, ttl)
 
-        # self.grad_tree = self.tree.grad(p)
-        # in_count, consumer_nodes, leaves = ShaderSDF._traverse(self.grad_tree)
-        # tape = ShaderSDF._make_tape(in_count, consumer_nodes, leaves)
-        # ttl = ShaderSDF._local_vars_ttl(tape)
+        self.grad_tree = self.tree.grad(p)
+        in_count, consumer_nodes, leaves = ShaderSDF._traverse(self.grad_tree)
+        tape = ShaderSDF._make_tape(in_count, consumer_nodes, leaves)
+        ttl = ShaderSDF._local_vars_ttl(tape)
 
-        # self.map_grad_func = self.generate_map_func(tape, ttl)
+        self.map_grad_func = self.generate_map_func(tape, ttl)
 
     def update_sdf(self, new_sdf):
         if new_sdf.is_2d:

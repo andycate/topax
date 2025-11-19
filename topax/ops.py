@@ -98,6 +98,9 @@ class OpBase:
 
     def grad(self, p):
         raise NotImplementedError()
+
+    def _grad_component(self, p, component):
+        raise NotImplementedError()
         
 
 @dataclass(frozen=True)
@@ -112,6 +115,10 @@ class const(OpBase):
         assert self.dtype.length is None
         assert self.dtype.base in {BaseType.float, BaseType.vec2, BaseType.vec3, BaseType.vec4}
         return const(self.dtype, 0.0)
+
+    def _grad_component(self, p, component):
+        # Constant has zero derivative for all components
+        return const(DType(BaseType.float), 0.0)
 
 @dataclass(frozen=True)
 class param(OpBase):
@@ -135,6 +142,22 @@ class param(OpBase):
         if self == p: return const(self.dtype, 1.0)
         else: return const(self.dtype, 0.0)
 
+    def _grad_component(self, p, component):
+        # For a vector parameter p, derivative w.r.t. component i is:
+        # 1 if this is p and we're extracting component i, else 0
+        if self != p:
+            return const(DType(BaseType.float), 0.0)
+
+        # This is the parameter we're differentiating with respect to
+        if component is None:
+            # Scalar case
+            return const(DType(BaseType.float), 1.0)
+
+        # Vector case - this should not happen directly on a param
+        # The param should be accessed via swizzle operations (p.x, p.y, p.z)
+        # which will handle the component extraction
+        return const(DType(BaseType.float), 0.0)
+
 @dataclass(frozen=True)
 class OpTree(OpBase):
     optype: OpType
@@ -156,66 +179,318 @@ class OpTree(OpBase):
         raise NotImplementedError(f"Type broadcasting between {lhs} and {rhs} not supported yet")
     
     def grad(self, p):
+        """
+        Compute the gradient of this OpTree with respect to parameter p.
+
+        For a scalar function f and vector parameter p (vec2 or vec3),
+        returns the gradient vector (∂f/∂p.x, ∂f/∂p.y, [∂f/∂p.z]).
+
+        This builds separate trees for each partial derivative component,
+        then combines them into a vector at the end.
+        """
+        # Determine dimensionality from parameter type
+        if p.dtype.base == BaseType.vec3:
+            return vec3(
+                self._grad_component(p, 0),  # ∂f/∂x
+                self._grad_component(p, 1),  # ∂f/∂y
+                self._grad_component(p, 2)   # ∂f/∂z
+            )
+        elif p.dtype.base == BaseType.vec2:
+            return vec2(
+                self._grad_component(p, 0),  # ∂f/∂x
+                self._grad_component(p, 1)   # ∂f/∂y
+            )
+        else:
+            # Scalar parameter - just return scalar derivative
+            return self._grad_component(p, None)
+
+    def _grad_component(self, p, component):
+        """
+        Compute partial derivative with respect to one component of p.
+
+        Args:
+            p: The parameter we're differentiating with respect to
+            component: 0 for x, 1 for y, 2 for z, None for scalar
+
+        Returns:
+            A scalar OpTree representing the partial derivative
+        """
         match self.optype:
-            case OpType.NEG: return -self.args[0].grad(p)
-            case OpType.ADD: return self.args[0].grad(p) + self.args[1].grad(p)
-            case OpType.SUB: return self.args[0].grad(p) - self.args[1].grad(p)
-            case OpType.MUL: return (self.args[0] * self.args[1].grad(p)) + (self.args[0].grad(p) * self.args[1])
-            case OpType.LEN:
-                arg = self.args[0]
-                assert arg.dtype.length is None
-                assert arg.dtype.base in {BaseType.vec2, BaseType.vec3, BaseType.vec4}
-                match arg.dtype.base:
-                    case BaseType.vec2: return vec2(arg.grad(p).x * arg.x / self, arg.grad(p).y * arg.y / self)
-                    case BaseType.vec3: return vec3(arg.grad(p).x * arg.x / self, arg.grad(p).y * arg.y / self, arg.grad(p).z * arg.z / self)
-                    case BaseType.vec4: return vec4(arg.grad(p).x * arg.x / self, arg.grad(p).y * arg.y / self, arg.grad(p).z * arg.z / self, arg.grad(p).w * arg.w / self)
-                    case _: pass
-            case OpType.MIN:
-                assert self.args[0].dtype.length is None and self.args[1].dtype.length is None
-                if self.args[0].dtype.base == BaseType.float:
-                    if self.args[1].dtype.base == BaseType.float:
-                        return ternary(self.args[0] < self.args[1], self.args[0].grad(p), self.args[1].grad(p))
-                    elif self.args[1].dtype.base == BaseType.vec2:
-                        return vec2(ternary(self.args[0] < self.args[1].x, self.args[0].grad(p), self.args[1].x.grad(p)), ternary(self.args[0] < self.args[1].y, self.args[0].grad(p), self.args[1].y.grad(p)))
-                    elif self.args[1].dtype.base == BaseType.vec3:
-                        return vec3(ternary(self.args[0] < self.args[1].x, self.args[0].grad(p), self.args[1].x.grad(p)), ternary(self.args[0] < self.args[1].y, self.args[0].grad(p), self.args[1].y.grad(p)), ternary(self.args[0] < self.args[1].z, self.args[0].grad(p), self.args[1].z.grad(p)))
-                elif self.args[1].dtype.base == BaseType.float:
-                    if self.args[0].dtype.base == BaseType.vec2:
-                        return vec2(ternary(self.args[0].x < self.args[1], self.args[0].x.grad(p), self.args[1].grad(p)), ternary(self.args[0].y < self.args[1], self.args[0].y.grad(p), self.args[1].grad(p)))
-                    elif self.args[0].dtype.base == BaseType.vec3:
-                        return vec3(ternary(self.args[0].x < self.args[1], self.args[0].x.grad(p), self.args[1].grad(p)), ternary(self.args[0].y < self.args[1], self.args[0].y.grad(p), self.args[1].grad(p)), ternary(self.args[0].z < self.args[1], self.args[0].z.grad(p), self.args[1].grad(p)))
-                raise NotImplementedError(f"MIN gradient for args {self.args[0].dtype} and {self.args[1].dtype} not supported!")
-            case OpType.MAX:
-                assert self.args[0].dtype.length is None and self.args[1].dtype.length is None
-                if self.args[0].dtype.base == BaseType.float:
-                    if self.args[1].dtype.base == BaseType.float:
-                        return ternary(self.args[0] > self.args[1], self.args[0].grad(p), self.args[1].grad(p))
-                    elif self.args[1].dtype.base == BaseType.vec2:
-                        return vec2(ternary(self.args[0] > self.args[1].x, self.args[0].grad(p), self.args[1].x.grad(p)), ternary(self.args[0] > self.args[1].y, self.args[0].grad(p), self.args[1].y.grad(p)))
-                    elif self.args[1].dtype.base == BaseType.vec3:
-                        return vec3(ternary(self.args[0] > self.args[1].x, self.args[0].grad(p), self.args[1].x.grad(p)), ternary(self.args[0] > self.args[1].y, self.args[0].grad(p), self.args[1].y.grad(p)), ternary(self.args[0] > self.args[1].z, self.args[0].grad(p), self.args[1].z.grad(p)))
-                elif self.args[1].dtype.base == BaseType.float:
-                    if self.args[0].dtype.base == BaseType.vec2:
-                        return vec2(ternary(self.args[0].x > self.args[1], self.args[0].x.grad(p), self.args[1].grad(p)), ternary(self.args[0].y > self.args[1], self.args[0].y.grad(p), self.args[1].grad(p)))
-                    elif self.args[0].dtype.base == BaseType.vec3:
-                        return vec3(ternary(self.args[0].x > self.args[1], self.args[0].x.grad(p), self.args[1].grad(p)), ternary(self.args[0].y > self.args[1], self.args[0].y.grad(p), self.args[1].grad(p)), ternary(self.args[0].z > self.args[1], self.args[0].z.grad(p), self.args[1].grad(p)))
-                raise NotImplementedError(f"MIN gradient for args {self.args[0].dtype} and {self.args[1].dtype} not supported!")
+            # Unary operations
+            case OpType.NEG:
+                # d(-f)/dp_i = -df/dp_i
+                a = self.args[0]
+                return -a._grad_component(p, component)
+
             case OpType.ABS:
-                assert self.args[0].dtype.length == None
-                # if self.args[0].dtype.base == BaseType.float: return self.args[0].grad(p) * sign(self.args[0])
-                # elif self.args[0].dtype.base == BaseType.vec2: return vec2(self.args[0].grad(p).x * sign(self.args[0].x), self.args[0].grad(p).y * sign(self.args[0].y))
-                # elif self.args[0].dtype.base == BaseType.vec3: return vec3(self.args[0].grad(p).x * sign(self.args[0].x), self.args[0].grad(p).y * sign(self.args[0].y))
-                return self.args[0].grad(p) * sign(self.args[0])
-            case OpType.VEC2: return vec2(*[a.grad(p) for a in self.args])
-            case OpType.VEC3: return vec3(*[a.grad(p) for a in self.args])
-            case OpType.X: return self.args[0].grad(p).x
-            case OpType.Y: return self.args[0].grad(p).y
-            case OpType.Z: return self.args[0].grad(p).z
-            case OpType.XY: return self.args[0].grad(p).xy
-            case OpType.YZ: return self.args[0].grad(p).yz
-            case OpType.XZ: return self.args[0].grad(p).xz
-            case _: pass
+                # d|f|/dp_i = sign(f) * df/dp_i
+                a = self.args[0]
+                return sign(a) * a._grad_component(p, component)
+
+            # Binary arithmetic operations
+            case OpType.ADD:
+                # d(f + g)/dp_i = df/dp_i + dg/dp_i
+                a, b = self.args[0], self.args[1]
+                return a._grad_component(p, component) + b._grad_component(p, component)
+
+            case OpType.SUB:
+                # d(f - g)/dp_i = df/dp_i - dg/dp_i
+                a, b = self.args[0], self.args[1]
+                return a._grad_component(p, component) - b._grad_component(p, component)
+
+            case OpType.MUL:
+                # d(f * g)/dp_i = f * dg/dp_i + g * df/dp_i (product rule)
+                a, b = self.args[0], self.args[1]
+                return a * b._grad_component(p, component) + b * a._grad_component(p, component)
+
+            case OpType.DIV:
+                # d(f / g)/dp_i = (g * df/dp_i - f * dg/dp_i) / g^2 (quotient rule)
+                a, b = self.args[0], self.args[1]
+                return (b * a._grad_component(p, component) - a * b._grad_component(p, component)) / (b * b)
+
+            # Min/Max operations (non-smooth, use subgradient)
+            # Need to handle mixed types (e.g., vec2 and float)
+            case OpType.MIN:
+                # d(min(f, g))/dp_i = df/dp_i if f < g else dg/dp_i
+                a, b = self.args[0], self.args[1]
+                a_grad = a._grad_component(p, component)
+                b_grad = b._grad_component(p, component)
+
+                # Handle type broadcasting for comparison
+                if a.dtype.base == BaseType.float and b.dtype.base == BaseType.float:
+                    return ternary(a < b, a_grad, b_grad)
+                elif a.dtype.base == BaseType.float:
+                    # a is scalar, b is vector - result is vector, we need the right component
+                    if b.dtype.base == BaseType.vec2:
+                        b_comp = [b.x, b.y][component] if component is not None else b
+                    elif b.dtype.base == BaseType.vec3:
+                        b_comp = [b.x, b.y, b.z][component] if component is not None else b
+                    else:
+                        raise NotImplementedError(f"MIN gradient for {a.dtype} and {b.dtype}")
+                    return ternary(a < b_comp, a_grad, b_grad)
+                elif b.dtype.base == BaseType.float:
+                    # a is vector, b is scalar
+                    if a.dtype.base == BaseType.vec2:
+                        a_comp = [a.x, a.y][component] if component is not None else a
+                    elif a.dtype.base == BaseType.vec3:
+                        a_comp = [a.x, a.y, a.z][component] if component is not None else a
+                    else:
+                        raise NotImplementedError(f"MIN gradient for {a.dtype} and {b.dtype}")
+                    return ternary(a_comp < b, a_grad, b_grad)
+                else:
+                    # Both are vectors - compare component-wise
+                    if a.dtype.base == BaseType.vec2:
+                        a_comp = [a.x, a.y][component]
+                        b_comp = [b.x, b.y][component]
+                    elif a.dtype.base == BaseType.vec3:
+                        a_comp = [a.x, a.y, a.z][component]
+                        b_comp = [b.x, b.y, b.z][component]
+                    else:
+                        raise NotImplementedError(f"MIN gradient for {a.dtype} and {b.dtype}")
+                    return ternary(a_comp < b_comp, a_grad, b_grad)
+
+            case OpType.MAX:
+                # d(max(f, g))/dp_i = df/dp_i if f > g else dg/dp_i
+                a, b = self.args[0], self.args[1]
+                a_grad = a._grad_component(p, component)
+                b_grad = b._grad_component(p, component)
+
+                # Handle type broadcasting for comparison
+                if a.dtype.base == BaseType.float and b.dtype.base == BaseType.float:
+                    return ternary(a > b, a_grad, b_grad)
+                elif a.dtype.base == BaseType.float:
+                    # a is scalar, b is vector
+                    if b.dtype.base == BaseType.vec2:
+                        b_comp = [b.x, b.y][component] if component is not None else b
+                    elif b.dtype.base == BaseType.vec3:
+                        b_comp = [b.x, b.y, b.z][component] if component is not None else b
+                    else:
+                        raise NotImplementedError(f"MAX gradient for {a.dtype} and {b.dtype}")
+                    return ternary(a > b_comp, a_grad, b_grad)
+                elif b.dtype.base == BaseType.float:
+                    # a is vector, b is scalar
+                    if a.dtype.base == BaseType.vec2:
+                        a_comp = [a.x, a.y][component] if component is not None else a
+                    elif a.dtype.base == BaseType.vec3:
+                        a_comp = [a.x, a.y, a.z][component] if component is not None else a
+                    else:
+                        raise NotImplementedError(f"MAX gradient for {a.dtype} and {b.dtype}")
+                    return ternary(a_comp > b, a_grad, b_grad)
+                else:
+                    # Both are vectors - compare component-wise
+                    if a.dtype.base == BaseType.vec2:
+                        a_comp = [a.x, a.y][component]
+                        b_comp = [b.x, b.y][component]
+                    elif a.dtype.base == BaseType.vec3:
+                        a_comp = [a.x, a.y, a.z][component]
+                        b_comp = [b.x, b.y, b.z][component]
+                    else:
+                        raise NotImplementedError(f"MAX gradient for {a.dtype} and {b.dtype}")
+                    return ternary(a_comp > b_comp, a_grad, b_grad)
+
+            case OpType.LEN:
+                # d|v|/dp_i = (v · ∂v/∂p_i) / |v|
+                # For vector v, this is: (v.x * ∂v.x/∂p_i + v.y * ∂v.y/∂p_i + ...) / |v|
+                v = self.args[0]
+                len_v = self  # length(v)
+
+                if v.dtype.base == BaseType.vec2:
+                    # Need gradients of v.x and v.y with respect to p_i
+                    grad_vx = v.x._grad_component(p, component)
+                    grad_vy = v.y._grad_component(p, component)
+                    return (v.x * grad_vx + v.y * grad_vy) / len_v
+                elif v.dtype.base == BaseType.vec3:
+                    grad_vx = v.x._grad_component(p, component)
+                    grad_vy = v.y._grad_component(p, component)
+                    grad_vz = v.z._grad_component(p, component)
+                    return (v.x * grad_vx + v.y * grad_vy + v.z * grad_vz) / len_v
+                elif v.dtype.base == BaseType.vec4:
+                    grad_vx = v.x._grad_component(p, component)
+                    grad_vy = v.y._grad_component(p, component)
+                    grad_vz = v.z._grad_component(p, component)
+                    grad_vw = v.w._grad_component(p, component)
+                    return (v.x * grad_vx + v.y * grad_vy + v.z * grad_vz + v.w * grad_vw) / len_v
+                else:
+                    raise NotImplementedError(f"LEN gradient for type {v.dtype} not supported")
+
+            # Swizzle operations - these extract a scalar from a vector
+            # The key insight: if the vector is p itself, then p.x has derivative 1 w.r.t. p.x, 0 w.r.t. p.y
+            case OpType.X:
+                v = self.args[0]
+                if isinstance(v, param) and v == p:
+                    # ∂(p.x)/∂(p.x) = 1, ∂(p.x)/∂(p.y) = 0, ∂(p.x)/∂(p.z) = 0
+                    return const(DType(BaseType.float), 1.0 if component == 0 else 0.0)
+                elif isinstance(v, OpTree) and v.optype == OpType.VEC2:
+                    # vec2(a, b).x = a, so gradient is gradient of a
+                    return v.args[0]._grad_component(p, component)
+                elif isinstance(v, OpTree) and v.optype == OpType.VEC3:
+                    # vec3(a, b, c).x = a
+                    return v.args[0]._grad_component(p, component)
+                elif isinstance(v, OpTree):
+                    # For operations on vectors (ADD, SUB, MUL, etc.), distribute the swizzle
+                    # (a op b).x = a.x op b.x
+                    return self._distribute_swizzle_grad(v, 0, p, component)
+                else:
+                    return const(DType(BaseType.float), 0.0)
+
+            case OpType.Y:
+                v = self.args[0]
+                if isinstance(v, param) and v == p:
+                    return const(DType(BaseType.float), 1.0 if component == 1 else 0.0)
+                elif isinstance(v, OpTree) and v.optype == OpType.VEC2:
+                    # vec2(a, b).y = b
+                    return v.args[1]._grad_component(p, component)
+                elif isinstance(v, OpTree) and v.optype == OpType.VEC3:
+                    # vec3(a, b, c).y = b
+                    return v.args[1]._grad_component(p, component)
+                elif isinstance(v, OpTree):
+                    return self._distribute_swizzle_grad(v, 1, p, component)
+                else:
+                    return const(DType(BaseType.float), 0.0)
+
+            case OpType.Z:
+                v = self.args[0]
+                if isinstance(v, param) and v == p:
+                    return const(DType(BaseType.float), 1.0 if component == 2 else 0.0)
+                elif isinstance(v, OpTree) and v.optype == OpType.VEC3:
+                    # vec3(a, b, c).z = c
+                    return v.args[2]._grad_component(p, component)
+                elif isinstance(v, OpTree):
+                    return self._distribute_swizzle_grad(v, 2, p, component)
+                else:
+                    return const(DType(BaseType.float), 0.0)
+
+            # Vector construction operations
+            # These shouldn't be called directly in _grad_component for scalar results,
+            # but we need them for when vectors are used as intermediates
+            case OpType.VEC2:
+                # This case occurs when we need the gradient of a vec2 as a whole
+                # Since _grad_component returns a scalar, this shouldn't happen
+                # for well-formed scalar SDFs, but we handle it for completeness
+                raise NotImplementedError("VEC2 gradient should be accessed via swizzle operations")
+
+            case OpType.VEC3:
+                raise NotImplementedError("VEC3 gradient should be accessed via swizzle operations")
+
+            case _:
+                pass
+
         raise NotImplementedError(f"Grad for operation {self.optype} not supported yet")
+
+    def _distribute_swizzle_grad(self, v, swizzle_idx, p, component):
+        """
+        Distribute a swizzle through a vector operation and compute gradient.
+
+        For operations like (a - b).x, this computes the gradient of (a.x - b.x).
+
+        Args:
+            v: The vector OpTree we're swizzling
+            swizzle_idx: 0 for x, 1 for y, 2 for z
+            p: Parameter we're differentiating with respect to
+            component: Which component of p (0, 1, or 2)
+        """
+        def get_swizzled(arg, idx):
+            """Get the appropriate swizzle of an argument"""
+            if isinstance(arg, param):
+                return [arg.x, arg.y, arg.z][idx] if arg.dtype.base == BaseType.vec3 else [arg.x, arg.y][idx]
+            elif isinstance(arg, const):
+                return arg  # Scalar constant broadcasts
+            elif isinstance(arg, OpTree):
+                if arg.dtype.base == BaseType.float:
+                    return arg  # Scalar broadcasts
+                else:
+                    return [arg.x, arg.y, arg.z][idx] if arg.dtype.base == BaseType.vec3 else [arg.x, arg.y][idx]
+            else:
+                return arg
+
+        # Handle different vector operations by distributing the swizzle
+        match v.optype:
+            case OpType.ADD:
+                a_swiz = get_swizzled(v.args[0], swizzle_idx)
+                b_swiz = get_swizzled(v.args[1], swizzle_idx)
+                return a_swiz._grad_component(p, component) + b_swiz._grad_component(p, component)
+
+            case OpType.SUB:
+                a_swiz = get_swizzled(v.args[0], swizzle_idx)
+                b_swiz = get_swizzled(v.args[1], swizzle_idx)
+                return a_swiz._grad_component(p, component) - b_swiz._grad_component(p, component)
+
+            case OpType.MUL:
+                a, b = v.args[0], v.args[1]
+                a_swiz = get_swizzled(a, swizzle_idx)
+                b_swiz = get_swizzled(b, swizzle_idx)
+                # Product rule: d(a*b)/dp = a*db/dp + b*da/dp
+                return a_swiz * b_swiz._grad_component(p, component) + b_swiz * a_swiz._grad_component(p, component)
+
+            case OpType.DIV:
+                a, b = v.args[0], v.args[1]
+                a_swiz = get_swizzled(a, swizzle_idx)
+                b_swiz = get_swizzled(b, swizzle_idx)
+                # Quotient rule
+                return (b_swiz * a_swiz._grad_component(p, component) - a_swiz * b_swiz._grad_component(p, component)) / (b_swiz * b_swiz)
+
+            case OpType.NEG:
+                a_swiz = get_swizzled(v.args[0], swizzle_idx)
+                return -a_swiz._grad_component(p, component)
+
+            case OpType.ABS:
+                a_swiz = get_swizzled(v.args[0], swizzle_idx)
+                return sign(a_swiz) * a_swiz._grad_component(p, component)
+
+            case OpType.MIN:
+                a, b = v.args[0], v.args[1]
+                a_swiz = get_swizzled(a, swizzle_idx)
+                b_swiz = get_swizzled(b, swizzle_idx)
+                return ternary(a_swiz < b_swiz, a_swiz._grad_component(p, component), b_swiz._grad_component(p, component))
+
+            case OpType.MAX:
+                a, b = v.args[0], v.args[1]
+                a_swiz = get_swizzled(a, swizzle_idx)
+                b_swiz = get_swizzled(b, swizzle_idx)
+                return ternary(a_swiz > b_swiz, a_swiz._grad_component(p, component), b_swiz._grad_component(p, component))
+
+            case _:
+                raise NotImplementedError(f"Cannot distribute swizzle through operation {v.optype}")
 
 
 def wrap_const(func: Callable):
