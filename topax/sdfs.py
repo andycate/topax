@@ -123,42 +123,53 @@ class translate(SDF):
 class rotate(SDF):
     def __init__(self, sdf: SDF, angle: float, axis: str='x'):
         self.sdf = self.add_sdf(sdf)
-        self.axis = axis
+        if isinstance(axis, str): self.axis = axis
+        else: self.axis = self.add_param(axis, DType(BaseType.vec3))
         self.angle = self.add_param(angle)
         super().__init__()
 
     def opdef(self, p):
-        angle = self.angle * (np.pi / 180.)
+        angle = self.angle * -(np.pi / 180.)
         s, c = ops.sin(angle), ops.cos(angle)
         if self.is_2d:
             rot = [
-                c, s, 
-                -s, c
+                c, -s, 
+                s, c
             ]
             p = ops.mat2(*rot) * p
             return self.sdf(p)
         else:
-            match self.axis:
-                case 'x':
-                    rot = [
-                        1., 0., 0., 
-                        0., c, s, 
-                        0., -s, c
-                    ]
-                case 'y':
-                    rot = [
-                        c, 0., -s, 
-                        0., 1., 0., 
-                        s, 0., c
-                    ]
-                case 'z':
-                    rot = [
-                        c, s, 0., 
-                        -s, c, 0., 
-                        0., 0., 1.
-                    ]
-                case _:
-                    raise ValueError(f"Axis must be 'x' 'y' or 'z', not {self.axis}")
+            if isinstance(self.axis, str):
+                match self.axis:
+                    case 'x':
+                        rot = [
+                            1., 0., 0., 
+                            0., c, -s, 
+                            0., s, c
+                        ]
+                    case 'y':
+                        rot = [
+                            c, 0., s, 
+                            0., 1., 0., 
+                            -s, 0., c
+                        ]
+                    case 'z':
+                        rot = [
+                            c, -s, 0., 
+                            s, c, 0., 
+                            0., 0., 1.
+                        ]
+                    case _:
+                        raise ValueError(f"Axis must be 'x' 'y' or 'z', not {self.axis}")
+            else:
+                axis_vec = ops.norm(self.axis)
+                x, y, z = axis_vec.x, axis_vec.y, axis_vec.z
+                C = 1.0 - c
+                rot = [
+                    c + x*x*C,     x*y*C - z*s, x*z*C + y*s,
+                    y*x*C + z*s,   c + y*y*C,   y*z*C - x*s,
+                    z*x*C - y*s,   z*y*C + x*s, c + z*z*C
+                ]
             p = ops.mat3(*rot) * p
             return self.sdf(p)
 
